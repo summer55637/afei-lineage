@@ -33237,7 +33237,7 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     let action='';
     if(gear)action+='<button class="a972-detail-act gold" data-a9931-equip>裝備</button><button class="a972-detail-act compare" data-a9931-compare>⚖ 與身上比較</button>';
     else if(!d.noUse&&(d.type==='pot'||d.type==='scroll'||d.type==='skillbk'||d.eff))action+='<button class="a972-detail-act gold" data-a9931-use>使用</button>';
-    if(gear&&!d.noEnh){action+='<button class="a972-detail-act enhance" data-a9931-enhance>強化（這一組）</button>';if(Number(meta.en||0)<Number(d.safe||0))action+='<button class="a972-detail-act safe" data-a9931-safe>一鍵強化安定（→ +'+Number(d.safe||0)+'）</button>';if(Number(meta.en||0)<9)action+='<button class="a972-detail-act enhance a9959-to9" data-a9931-to9>一鍵強化至 +9</button>'}
+    if(gear&&!d.noEnh){action+='<button class="a972-detail-act enhance" data-a9931-enhance>整組全部強化 +1</button>';if(Number(meta.en||0)<Number(d.safe||0))action+='<button class="a972-detail-act safe" data-a9931-safe>整組一鍵強化安定（→ +'+Number(d.safe||0)+'）</button>';if(Number(meta.en||0)<9)action+='<button class="a972-detail-act enhance a9959-to9" data-a9931-to9>整組一鍵強化至 +9</button>'}
     if(v.kind==='plain'&&unit>0&&!locked){action+='<button class="a972-detail-act sell" data-a9931-sell-one>出售 💰'+fmt(unit)+'</button><button class="a972-detail-act sell" data-a9931-sell-all>全部出售 💰'+fmt(unit*count)+'</button>'}
     const seteff=meta.seteff?'<div class="a972-detail-affix">✦ '+escapeHtml(meta.seteff)+'</div>':'';
     return '<div class="a972-detail-card"><button class="a972-lock-btn '+(locked?'locked':'')+'" data-a9931-lock>'+(locked?'🔒':'🔓')+'</button>'+ '<div class="a972-detail-icon">'+a9931IconHtml(id,meta,'detail')+'</div><h2>'+escapeHtml(name)+' <small>('+fmt(count)+')</small></h2>'+ '<div class="a972-detail-info">'+info.map(([k,val])=>'<div><span>'+escapeHtml(k)+'：</span><b>'+escapeHtml(val)+'</b></div>').join('')+'</div>'+ (aff?'<div class="a972-detail-affix">'+escapeHtml(aff)+'</div>':'')+seteff+ '<div class="a972-detail-actions">'+action+'<button class="a972-detail-act close" data-a9931-close>關閉</button></div><div class="a972-compare-holder"></div></div>';
@@ -33283,6 +33283,127 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     finally{Math.random=oldRnd;window.confirm=oldConfirm;if(snap){state=snap;try{derive();render()}catch(e){}}}
     return{ok:rows.every(x=>x.ok),build:'B1.0 Alpha99.59',total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
   }
+  // ===== Alpha99.62：背包同分堆整組批次強化（手機低負載） =====
+  // 設計：只在記憶體模擬；不逐件 save/render/log；完成後一次提交、一次存檔、一次重畫。
+  // 大批量每 256 次判定主動讓出事件迴圈，避免手機長時間佔滿主執行緒。
+  let A9962_BATCH_BUSY=false;
+  const A9962_BATCH_YIELD_EVERY=256;
+  const A9962_BATCH_GUARD=200000;
+  function a9962Yield(){return new Promise(resolve=>setTimeout(resolve,0))}
+  function a9962CloneMeta(id,m){return a9931Meta(id,JSON.parse(JSON.stringify(m||{})))}
+  function a9962CurrentGroup(v){
+    if(!v||!v.id)return null;const id=v.id;try{a16EnsureEnhanceState()}catch(e){}
+    if(v.kind==='plain'){
+      const count=Math.max(0,Number(a16PlainCount(id)||0));
+      return{kind:'plain',id,sig:'plain',count,copies:Array.from({length:count},()=>a9962CloneMeta(id,{en:0,affix:{},seteff:false}))};
+    }
+    const sig=String(v.sig||a9931Sig(id,v.meta||{})),arr=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],copies=[];
+    for(const raw of arr){const m=a9962CloneMeta(id,raw);if(a9931Sig(id,m)===sig)copies.push(m)}
+    return{kind:'special',id,sig,count:copies.length,copies};
+  }
+  function a9962CommitGroup(group,copies,destroyed,scroll,used){
+    const id=group.id;
+    // 特殊分堆：只移除本次鎖定的同簽名實體，不碰同道具的其他強化/詞綴/席琳分堆。
+    if(group.kind==='special'){
+      const arr=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],keep=[];let removed=0;
+      for(const raw of arr){const m=a9962CloneMeta(id,raw);if(removed<group.count&&a9931Sig(id,m)===group.sig){removed++;continue}keep.push(raw)}
+      state.gearInventoryMeta[id]=keep;if(!keep.length)delete state.gearInventoryMeta[id];
+    }
+    const arr=(state.gearInventoryMeta[id]||(state.gearInventoryMeta[id]=[]));
+    for(const c of copies){if(!c.alive)continue;const m=a16CleanGearMeta(id,c.meta);if(a16MetaSpecial(m))arr.push(m)}
+    if(!arr.length)delete state.gearInventoryMeta[id];
+    if(destroyed>0){const left=Math.max(0,Number(state.inventory?.[id]||0)-destroyed);if(left>0)state.inventory[id]=left;else delete state.inventory[id]}
+    if(used>0){const left=Math.max(0,Number(state.inventory?.[scroll]||0)-used);if(left>0)state.inventory[scroll]=left;else delete state.inventory[scroll]}
+    a16SyncLegacyPools();
+  }
+  function a9962Summary(id,mode,group,copies,destroyed,used,shortage,blocked){
+    const d=a8Item(id)||{n:id},levels={};
+    for(const c of copies){if(!c.alive)continue;const en=Math.max(0,Number(c.meta?.en||0));levels[en]=(levels[en]||0)+1}
+    const parts=Object.keys(levels).map(Number).sort((a,b)=>a-b).map(en=>'+'+en+' ×'+levels[en]);
+    if(destroyed)parts.push('破壞 ×'+destroyed);if(blocked)parts.push('停止 ×'+blocked);
+    const tag=mode==='once'?'整組強化 +1':mode==='safe'?'整組強化安定':'整組強化至 +9';
+    return tag+'：'+(d.n||id)+' ×'+group.count+' → '+(parts.join('、')||'沒有變化')+'｜消耗 '+used+' 張卷軸'+(shortage?'｜卷軸不足，已停止':'');
+  }
+  async function a9962BatchEnhanceVariant(v,mode='once'){
+    if(A9962_BATCH_BUSY){toast('批次強化正在處理中');return false}
+    const d=a8Item(v?.id),scroll=v?.id?a972EnhanceScrollFor(v.id):'';
+    if(!d||!scroll){toast('背包沒有可用的一般強化卷軸');return false}
+    if(a972IsLocked(v.id)){toast('此裝備已鎖定，請先解鎖再強化。');return false}
+    const cap=a16CapFor(d),goal=mode==='safe'?Math.max(0,Number(d.safe||0)):mode==='to9'?9:null;
+    if(mode==='to9'&&cap<9){toast('此裝備強化上限只有 +'+cap+'，無法強化至 +9');return false}
+    const group=a9962CurrentGroup(v);if(!group||group.count<1){toast('找不到這一組裝備');return false}
+    const startEn=Math.max(0,Number(group.copies[0]?.en||0));
+    if(mode==='safe'&&startEn>=goal){toast('目前已達安定值');return false}
+    if(mode==='to9'&&startEn>=9){toast('目前已達 +9');return false}
+    const firstProfile=a23EnhanceProfile(d,startEn,scroll);if(firstProfile?.blocked){toast(firstProfile.reason||'目前無法強化');return false}
+    let available=Math.max(0,Number(a8Count(scroll)||0));if(available<1){toast('強化卷軸不足');return false}
+    A9962_BATCH_BUSY=true;document.getElementById('a68-item-modal')?.classList.remove('open');
+    const copies=group.copies.map(m=>({meta:a9962CloneMeta(v.id,m),alive:true,done:false}));
+    let used=0,attempts=0,destroyed=0,blocked=0,guard=A9962_BATCH_GUARD,lastRec=null,shortage=false;
+    try{
+      while(guard-->0){
+        let progressed=false,unfinished=false;
+        for(const c of copies){
+          if(!c.alive||c.done)continue;
+          const en=Math.max(0,Number(c.meta.en||0));
+          if(mode!=='once'&&en>=goal){c.done=true;continue}
+          unfinished=true;
+          if(available<=0){shortage=true;break}
+          const p=a23EnhanceProfile(d,en,scroll);if(p?.blocked){c.done=true;blocked++;continue}
+          available--;used++;attempts++;progressed=true;
+          const roll=Math.random()*100;let result='stay',to=en;
+          if(roll<Number(p.succ||0)){
+            let add=1;const s=A16_SCROLLS[scroll];if(s?.blessed){const r=a23BlessRange(d,en);add=r.min+Math.floor(Math.random()*(r.max-r.min+1))}
+            to=Math.min(cap,en+add);c.meta={...c.meta,en:to};result='success';
+          }else if(roll<Number(p.succ||0)+Number(p.stay||0)){
+            result='stay';
+          }else{
+            c.alive=false;c.done=true;destroyed++;result='destroy';to=0;
+          }
+          lastRec={from:en,to,scroll,result,p};
+          if(mode==='once')c.done=true;else if(c.alive&&Number(c.meta.en||0)>=goal)c.done=true;
+          if(attempts%A9962_BATCH_YIELD_EVERY===0)await a9962Yield();
+        }
+        if(shortage||mode==='once'||!unfinished||!progressed)break;
+      }
+      if(guard<=0)toast('批次強化安全上限已觸發，已停止');
+      if(used<1){toast('沒有可執行的強化');return false}
+      a9962CommitGroup(group,copies,destroyed,scroll,used);
+      if(lastRec){try{a23RecordEnhance(v.id,lastRec.from,lastRec.to,lastRec.scroll,lastRec.result,lastRec.p);if(state?.enhanceRules?.last)state.enhanceRules.last.location='inventory-batch'}catch(e){}}
+      // 不產生逐件強化日誌，甚至不寫摘要到戰鬥日誌；只用單一 toast 回報。
+      derive();save();try{renderDrawers()}catch(e){render()}
+      const msg=a9962Summary(v.id,mode,group,copies,destroyed,used,shortage,blocked);window.__A9962_LAST_BATCH__={ok:true,id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,summary:msg};toast(msg);
+      return true;
+    }catch(e){console.error('Alpha99.62 batch enhance',e);toast('批次強化發生錯誤，未完成');return false}
+    finally{A9962_BATCH_BUSY=false}
+  }
+  async function a9962Probe(){
+    const snap=state?JSON.parse(JSON.stringify(state)):null,oldRnd=Math.random,oldSave=save,oldRD=renderDrawers,oldRender=render,oldToast=toast,rows=[];
+    const add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    async function one(name,count,scrolls,mode,rnd,expect){
+      a76TestReset('elf',60);state.inventory={clk_elf:count,scroll_armor:scrolls};state.gearInventoryMeta={};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();
+      let saveCalls=0,drawerCalls=0,renderCalls=0,toastCalls=0;Math.random=()=>rnd;save=()=>{saveCalls++;return true};renderDrawers=()=>{drawerCalls++;return true};render=()=>{renderCalls++;return true};toast=()=>{toastCalls++};
+      const beforeLogs=logLines.length,v=a9931BuildVariants().find(x=>x.id==='clk_elf'&&x.kind==='plain'),t0=performance.now();const ok=await a9962BatchEnhanceVariant(v,mode),ms=performance.now()-t0;
+      const vs=a9931BuildVariants().filter(x=>x.id==='clk_elf').map(x=>({kind:x.kind,en:Number(x.meta?.en||0),count:Number(x.count||0)}));
+      const detail={ok,ms,saveCalls,drawerCalls,renderCalls,toastCalls,logDelta:logLines.length-beforeLogs,scrollLeft:a8Count('scroll_armor'),itemLeft:a8Count('clk_elf'),variants:vs,last:window.__A9962_LAST_BATCH__};
+      add(name,!!expect(detail),detail);
+    }
+    try{
+      await one('47件整組各強化1次',47,100,'once',0,d=>d.ok&&d.itemLeft===47&&d.scrollLeft===53&&d.variants.length===1&&d.variants[0].en===1&&d.variants[0].count===47&&d.logDelta===0&&d.saveCalls===1&&d.drawerCalls===1);
+      await one('47件整組安定到+6',47,500,'safe',0,d=>d.ok&&d.itemLeft===47&&d.scrollLeft===218&&d.variants.length===1&&d.variants[0].en===6&&d.variants[0].count===47&&d.logDelta===0&&d.saveCalls===1&&d.drawerCalls===1);
+      await one('47件整組到+9',47,1000,'to9',0,d=>d.ok&&d.itemLeft===47&&d.scrollLeft===577&&d.variants.length===1&&d.variants[0].en===9&&d.variants[0].count===47&&d.logDelta===0&&d.saveCalls===1&&d.drawerCalls===1);
+      await one('卷軸不足採整組輪流分配',47,50,'safe',0,d=>d.ok&&d.scrollLeft===0&&d.variants.some(x=>x.en===1&&x.count===44)&&d.variants.some(x=>x.en===2&&x.count===3)&&d.last?.shortage===true&&d.logDelta===0);
+      await one('高風險路徑可整組破壞',47,1000,'to9',.999999,d=>d.ok&&d.itemLeft===0&&d.scrollLeft===671&&d.last?.destroyed===47&&d.logDelta===0);
+      await one('1000件安定批次仍只存檔/重畫一次',1000,7000,'safe',0,d=>d.ok&&d.itemLeft===1000&&d.scrollLeft===1000&&d.variants.length===1&&d.variants[0].en===6&&d.variants[0].count===1000&&d.logDelta===0&&d.saveCalls===1&&d.drawerCalls===1);
+      a76TestReset('elf',60);state.inventory={clk_elf:47,scroll_armor:1000};state.gearInventoryMeta={};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();const v=a9931BuildVariants().find(x=>x.id==='clk_elf'&&x.kind==='plain'),html=a9931DetailHtml(v);
+      add('背包三按鈕文字明確標示整組',html.includes('整組全部強化 +1')&&html.includes('整組一鍵強化安定')&&html.includes('整組一鍵強化至 +9'),{});
+      a76TestReset('elf',60);state.inventory={clk_elf:5,scroll_armor:20};state.gearInventoryMeta={};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();Math.random=()=>0;const clickV=a9931BuildVariants().find(x=>x.id==='clk_elf'&&x.kind==='plain');a9931OpenVariant(clickV.token);document.querySelector('#a68-item-modal [data-a9931-enhance]')?.click();let wait=200;while(A9962_BATCH_BUSY&&wait-->0)await a9962Yield();const clickAfter=a9931BuildVariants().filter(x=>x.id==='clk_elf');
+      add('實際點擊整組強化按鈕會走批次核心',wait>0&&clickAfter.length===1&&Number(clickAfter[0].meta?.en||0)===1&&Number(clickAfter[0].count||0)===5&&a8Count('scroll_armor')===15,{waitLeft:wait,variants:clickAfter.map(x=>({en:Number(x.meta?.en||0),count:Number(x.count||0)})),scrollLeft:a8Count('scroll_armor')});
+    }catch(e){add('Alpha99.62 probe exception',false,{error:String(e?.stack||e)})}
+    finally{Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;if(snap){state=snap;try{derive();render()}catch(e){}}}
+    return{ok:rows.every(x=>x.ok),build:'B1.0 Alpha99.62',total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD};
   function a9931OpenVariant(token){
     const v=A9931_CACHE.get(String(token));if(!v)return false;if(v.kind==='normal'&&!a9931Gear(v.id))return a68OpenItem(v.id,'');
     const m=a68EnsureModal();m.dataset.item=v.id;m.dataset.slot='';m.dataset.a9931Token=v.token;const body=m.querySelector('#a68-modal-body');body.innerHTML=a9931DetailHtml(v);m.classList.add('open');
@@ -33290,9 +33411,9 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     body.querySelector('[data-a9931-equip]')?.addEventListener('click',()=>{m.classList.remove('open');a9931EquipVariant(v)});
     body.querySelector('[data-a9931-use]')?.addEventListener('click',()=>{m.classList.remove('open');a8UseItem(v.id)});
     body.querySelector('[data-a9931-compare]')?.addEventListener('click',e=>{const h=body.querySelector('.a972-compare-holder');if(h)h.innerHTML=a9931CompareHtml(v);e.currentTarget.disabled=true});
-    body.querySelector('[data-a9931-enhance]')?.addEventListener('click',()=>a9931EnhanceVariant(v,false));
-    body.querySelector('[data-a9931-safe]')?.addEventListener('click',()=>a9931EnhanceVariant(v,true));
-    body.querySelector('[data-a9931-to9]')?.addEventListener('click',()=>a9959EnhanceVariantTo9(v));
+    body.querySelector('[data-a9931-enhance]')?.addEventListener('click',()=>{void a9962BatchEnhanceVariant(v,'once')});
+    body.querySelector('[data-a9931-safe]')?.addEventListener('click',()=>{void a9962BatchEnhanceVariant(v,'safe')});
+    body.querySelector('[data-a9931-to9]')?.addEventListener('click',()=>{void a9962BatchEnhanceVariant(v,'to9')});
     body.querySelector('[data-a9931-sell-one]')?.addEventListener('click',()=>{if(a10Sell(v.id,1)){m.classList.remove('open');renderDrawers()}});
     body.querySelector('[data-a9931-sell-all]')?.addEventListener('click',()=>{const q=Math.min(Number(v.count)||0,a16PlainCount(v.id));if(q>0&&a10Sell(v.id,q)){m.classList.remove('open');renderDrawers()}});
     body.querySelector('[data-a9931-close]')?.addEventListener('click',()=>m.classList.remove('open'));return true;
@@ -37909,4 +38030,30 @@ const A9961_BUILD='B1.0 Alpha99.61';
 })();
 </script>
 
+
+<script id="a9962-final-version">
+(()=>{
+  const B='B1.0 Alpha99.62';
+  function apply(){
+    window.__BUILD_VERSION__=B;
+    try{document.title='樓梯口天堂 · '+B}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=B}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.62：背包同分堆裝備改為整組批次強化；取消逐件強化日誌，批次只存檔/重畫一次，並分段讓出主執行緒降低手機卡頓。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.62｜整組批次強化手機優化｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=B+' · 整組批次強化'}catch(e){}
+  }
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{add('批次核心存在',typeof window.__A9962_BATCH_CORE__?.run==='function');add('手機分段門檻',window.__A9962_BATCH_CORE__?.yieldEvery===256,{yieldEvery:window.__A9962_BATCH_CORE__?.yieldEvery});add('最終版本',window.__BUILD_VERSION__===B,{build:window.__BUILD_VERSION__})}catch(e){add('Alpha99.62 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:B,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+  window.__A9962_TEST__={build:B,audit,core:window.__A9962_BATCH_CORE__,previous:window.__A9961_TEST__||null};
+})();
+</script>
 </body></html>
