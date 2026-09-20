@@ -39014,4 +39014,60 @@ const A9967_BUILD='B1.0 Alpha99.67';
 })();
 </script>
 
+
+
+<!-- ===== B1.0 Alpha99.71：手機村莊右側 X 移除 =====
+     只隱藏手機版村莊右側的離開 X；PC 版離開按鈕、NPC、戰鬥、數值、存檔均不變。
+     手機仍可由地圖/狩獵場入口離開村莊。 -->
+<style id="a9971-mobile-village-x-remove">
+@media(max-width:900px){
+  body.a9846-reference-ui #battle.village-mode #village-stage .village-leave{
+    display:none!important;
+  }
+  body.a9846-reference-ui #battle.village-mode #village-stage .village-leave::after{
+    display:none!important;
+    content:none!important;
+  }
+}
+</style>
+<script id="a9971-final-version">
+(()=>{
+  const B='B1.0 Alpha99.71';
+  function apply(){
+    window.__BUILD_VERSION__=B;
+    try{document.title='樓梯口天堂 · '+B}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=B}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.71：移除手機版村莊右側 X；保留 PC 版離開按鈕與既有功能。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.71｜手機村莊右側 X 移除｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=B+' · 手機村莊 X 移除'}catch(e){}
+  }
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const p70ok=window.__A9970_TEST__?.audit?.().ok===true;
+      apply();
+      add('99.70 核心保留',p70ok);
+      add('手機 X 移除樣式存在',!!document.getElementById('a9971-mobile-village-x-remove'));
+      add('版本標記',window.__BUILD_VERSION__===B,{build:window.__BUILD_VERSION__});
+      if(innerWidth<=900){
+        const leave=document.getElementById('village-leave');
+        if(leave){const c=getComputedStyle(leave);add('手機村莊右側 X 已隱藏',c.display==='none',{display:c.display});}
+      }else{
+        const leave=document.getElementById('village-leave');
+        if(leave){const c=getComputedStyle(leave);add('PC 離開按鈕未被 99.71 隱藏',c.display!=='none',{display:c.display});}
+      }
+    }catch(e){add('Alpha99.71 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:B,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a7RenderVillage==='function'){const b=a7RenderVillage;a7RenderVillage=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+  window.__A9971_TEST__={build:B,audit,applyVersion:apply,previous:window.__A9970_TEST__||null};
+})();
+</script>
+
 </body></html>
