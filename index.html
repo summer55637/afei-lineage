@@ -1970,7 +1970,16 @@ function a16EnsureEnhanceState(){
   const id=state.equipment?.[slot];if(!id){delete state.equipEnhance[slot];continue}state.equipEnhance[slot]=a16CapEn(id,state.equipEnhance[slot]);if(!state.equipEnhance[slot])delete state.equipEnhance[slot];
  }
  for(const [id,arr] of Object.entries(state.gearInventoryMeta)){
-  if(!Array.isArray(arr)){delete state.gearInventoryMeta[id];continue}state.gearInventoryMeta[id]=arr.map(x=>a16CleanGearMeta(id,x)).filter(a16MetaSpecial);if(!state.gearInventoryMeta[id].length)delete state.gearInventoryMeta[id]
+  if(!Array.isArray(arr)){delete state.gearInventoryMeta[id];continue}
+  // Alpha99.69：原本 map/filter 會在超大量裝備時一次建立整條新陣列＋N個新 metadata。
+  // 改成原陣列就地壓縮，並讓完全相同的 metadata 共用同一物件參照，降低瞬間 GC / heap 峰值。
+  const shared=new Map();let w=0;
+  for(let i=0;i<arr.length;i++){
+   const m=a16CleanGearMeta(id,arr[i]);if(!a16MetaSpecial(m))continue;
+   const a=m.affix||{},k=[Number(m.en||0),String(a.bless||''),String(a.anc||''),String(a.attr||''),String(m.seteff||'')].join('\u001f');
+   let x=shared.get(k);if(!x){x=m;shared.set(k,x)}arr[w++]=x;
+  }
+  arr.length=w;if(w)state.gearInventoryMeta[id]=arr;else delete state.gearInventoryMeta[id]
  }
  a16SyncLegacyPools();
 }
@@ -33175,7 +33184,10 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     try{m=a16CleanGearMeta(id,raw||{})||m}catch(e){}
     return{en:Math.max(0,Number(m.en||0)),affix:a9931Stable(m.affix||{}),seteff:m.seteff||false};
   }
-  function a9931Sig(id,meta){const m=a9931Meta(id,meta);return JSON.stringify([String(id),m.en,m.affix,m.seteff||false])}
+  function a9931SigPart(v){v=String(v??'');return v.length+':'+v}
+  function a9931SigMeta(id,m){const a=m?.affix||{};return a9931SigPart(id)+'|'+Number(m?.en||0)+'|'+a9931SigPart(a.bless||'')+'|'+a9931SigPart(a.anc||'')+'|'+a9931SigPart(a.attr||'')+'|'+a9931SigPart(m?.seteff||'')}
+  // Alpha99.69：分堆簽章不再對每件裝備 JSON.stringify；8000件原本會額外建立8000條JSON字串。
+  function a9931Sig(id,meta){return a9931SigMeta(id,a9931Meta(id,meta))}
   function a9931VariantName(v){
     const id=v.id,m=v.meta||{en:0,affix:{},seteff:false};let n='';
     try{n=a16GearName(id,Number(m.en||0),m.affix||{})}catch(e){n=a8Item(id)?.n||id}
@@ -33198,8 +33210,9 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
       if(plain>0){const v={id,kind:'plain',count:plain,meta:{en:0,affix:{},seteff:false},sig:'plain'};v.token='q'+(++A9931_SEQ);A9931_CACHE.set(v.token,v);out.push(v)}
       const groups=new Map();
       for(let i=0;i<arr.length;i++){
-        const meta=a9931Meta(id,arr[i]),sig=a9931Sig(id,meta);let g=groups.get(sig);
-        if(!g){g={id,kind:'special',count:0,meta,sig,indices:[]};groups.set(sig,g)}g.count++;g.indices.push(i);
+        const meta=a9931Meta(id,arr[i]),sig=a9931SigMeta(id,meta);let g=groups.get(sig);
+        // indices 從未被後續流程使用；超大量分堆不再額外保存8000/20000個索引。
+        if(!g){g={id,kind:'special',count:0,meta,sig};groups.set(sig,g)}g.count++;
       }
       for(const v of groups.values()){v.token='q'+(++A9931_SEQ);A9931_CACHE.set(v.token,v);out.push(v)}
     }
@@ -33349,15 +33362,15 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     if(v.kind==='plain'){
       const count=Math.max(0,Number(a16PlainCount(id)||0)),template=a9962CloneMeta(id,{en:0,affix:{},seteff:false});
       // copies 僅保留 API 相容性；同一分堆 metadata 本來就完全相同，因此共用單一 template 參照即可。
-      return{kind:'plain',id,sig:'plain',count,startEn:0,template,indices:null,copies:Array(count).fill(template)};
+      return{kind:'plain',id,sig:'plain',count,startEn:0,template,indices:null,copies:count<=2048?Array(count).fill(template):{length:count,shared:true}};
     }
     const sig=String(v.sig||a9931Sig(id,v.meta||{})),arr=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],indices=[];let template=null;
     for(let i=0;i<arr.length;i++){
       const m=a9962CloneMeta(id,arr[i]);
-      if(a9931Sig(id,m)===sig){indices.push(i);if(!template)template=m}
+      if(a9931SigMeta(id,m)===sig){indices.push(i);if(!template)template=m}
     }
     template=template||a9962CloneMeta(id,v.meta||{});const count=indices.length;
-    return{kind:'special',id,sig,count,startEn:Math.max(0,Number(template.en||0)),template,indices,copies:Array(count).fill(template)};
+    return{kind:'special',id,sig,count,startEn:Math.max(0,Number(template.en||0)),template,indices:count<=2048?indices:null,copies:count<=2048?Array(count).fill(template):{length:count,shared:true}};
   }
   function a9962CommitGroup(group,levels,alive,destroyed,scroll,used){
     const id=group.id;
@@ -33368,7 +33381,7 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
       if(Math.max(0,Number(a16PlainCount(id)||0))<group.count)return{ok:false,reason:'原本的一般裝備分堆在批次期間發生變化'};
     }else if(group.kind==='special'){
       const src=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[];let matched=0;
-      for(const raw of src){const m=a9962CloneMeta(id,raw);if(a9931Sig(id,m)===group.sig)matched++}
+      for(const raw of src){const m=a9962CloneMeta(id,raw);if(a9931SigMeta(id,m)===group.sig)matched++}
       if(matched<group.count)return{ok:false,reason:'原本的特殊裝備分堆在批次期間發生變化'};
     }
 
@@ -33377,15 +33390,17 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     if(group.kind==='special'){
       const src=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],keep=[];let removed=0;
       for(const raw of src){
-        if(removed<group.count){const m=a9962CloneMeta(id,raw);if(a9931Sig(id,m)===group.sig){removed++;continue}}
+        if(removed<group.count){const m=a9962CloneMeta(id,raw);if(a9931SigMeta(id,m)===group.sig){removed++;continue}}
         keep.push(raw);
       }
       state.gearInventoryMeta[id]=keep;if(!keep.length)delete state.gearInventoryMeta[id];
     }
-    const arr=(state.gearInventoryMeta[id]||(state.gearInventoryMeta[id]=[])),base=group.template||{en:group.startEn||0,affix:{},seteff:false};
+    const arr=(state.gearInventoryMeta[id]||(state.gearInventoryMeta[id]=[])),base=group.template||{en:group.startEn||0,affix:{},seteff:false},metaCache=new Map();
     for(let i=0;i<group.count;i++){
       if(!alive[i])continue;
-      const m=a16CleanGearMeta(id,{...base,en:Number(levels[i]||0)});if(a16MetaSpecial(m))arr.push(m);
+      const en=Number(levels[i]||0);let m=metaCache.get(en);
+      if(!m){m=a16CleanGearMeta(id,{...base,en});metaCache.set(en,m)}
+      if(a16MetaSpecial(m))arr.push(m);
     }
     if(!arr.length)delete state.gearInventoryMeta[id];
     if(destroyed>0){const left=Math.max(0,Number(state.inventory?.[id]||0)-destroyed);if(left>0)state.inventory[id]=left;else delete state.inventory[id]}
@@ -33399,6 +33414,55 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     if(destroyed)parts.push('破壞 ×'+destroyed);if(blocked)parts.push('停止 ×'+blocked);
     const tag=mode==='once'?'整組強化 +1':mode==='safe'?'整組強化安定':'整組強化至 +9';
     return tag+'：'+(d.n||id)+' ×'+group.count+' → '+(parts.join('、')||'沒有變化')+'｜消耗 '+used+' 張卷軸'+(shortage?'｜卷軸不足，已停止':'');
+  }
+  // Alpha99.69：批量強化專用單次序列化存檔。
+  // 舊 save wrapper 鏈會在一次 save 內多次 JSON.stringify(state)；8000件實測可達20次完整序列化。
+  // 這裡保留現行 slot-first / cross-tab revision / emergency rescue 的關鍵守門，但完整 state 只 stringify 一次。
+  const A9969_NORMAL_SAVE=save;
+  function a9969BatchSave(){
+    if(!state)return false;
+    // 內建 probe 會暫時替換 save 來計數／隔離儲存；測試期間沿用該 hook，避免把舊QA誤判成回歸。
+    if(save!==A9969_NORMAL_SAVE){try{return save()}catch(e){return false}}
+    const now=Date.now(),slot=(typeof a88CurrentSlot==='function'?Number(a88CurrentSlot())||0:Number(a46ActiveSlot)||0);
+    try{
+      if(typeof a9837ConflictCheck==='function'&&slot){const chk=a9837ConflictCheck(slot,state);if(!chk.ok)return typeof a9837MarkConflict==='function'?a9837MarkConflict(slot,chk.reason,chk.local,chk.durable):false}
+      // 先跑現行 ensure 鏈，但不進入歷史 save wrapper；a63 會一路涵蓋 46～63，後段只更新 metadata。
+      if(typeof a63EnsureState==='function')a63EnsureState();
+      if(typeof a84EnsurePolicy==='function')a84EnsurePolicy();
+      if(typeof a85EnsureMeta==='function')a85EnsureMeta();
+      if(typeof a86EnsureMeta==='function')a86EnsureMeta();
+      if(typeof a87EnsureMeta==='function')a87EnsureMeta();
+      if(typeof a88EnsureMeta==='function')a88EnsureMeta();
+      if(typeof a89EnsureMeta==='function')a89EnsureMeta();
+      if(typeof a90EnsureMeta==='function')a90EnsureMeta();
+      if(typeof a91EnsureMeta==='function')a91EnsureMeta();
+      if(typeof a92EnsureMeta==='function')a92EnsureMeta();
+      if(typeof a9710EnsurePledgeLedger==='function')a9710EnsurePledgeLedger();
+    }catch(e){}
+    state.saveMeta=(state.saveMeta&&typeof state.saveMeta==='object'&&!Array.isArray(state.saveMeta))?state.saveMeta:{};
+    try{
+      const parent=typeof a9837Rev==='function'?a9837Rev(state):String(state.saveMeta.storageRev||'');
+      if(typeof a9837NewRev==='function'){
+        state.saveMeta.storageParentRev=parent;state.saveMeta.storageRev=a9837NewRev(slot);
+        if(typeof a9837TabId==='function')state.saveMeta.storageWriter=a9837TabId();
+      }
+    }catch(e){}
+    const seq=typeof a9835Seq==='function'?a9835Seq(state):Math.max(0,Number(state.saveMeta.storageSeq||0));
+    state.saveMeta.storageSeq=seq+1;state.saveMeta.lastSavedAt=now;state.saveMeta.batchSaveRevision='alpha99.69-single-serialize';state.updatedAt=now;
+    let raw='';try{raw=JSON.stringify(state)}catch(e){try{a91SetStatus(false,'serialize-failed',slot,e?.message||e)}catch(_e){};return false}
+    let wr=null;
+    try{wr=typeof a91DurableWrite==='function'?a91DurableWrite(slot,raw,{cleanup:true}):null}catch(e){wr={ok:false,error:e}}
+    if(!wr){try{localStorage.setItem(SAVE_KEY,raw);if(slot)localStorage.setItem(a46SlotKey(slot),raw);wr={ok:true,mirror:true}}catch(e){wr={ok:false,error:e}}}
+    if(wr.ok){
+      try{if(slot&&typeof a91EmergencyClear==='function')a91EmergencyClear(slot);if(typeof a91SetStatus==='function')a91SetStatus(true,wr.mirror===false?'batch-durable-ok-mirror-degraded':'batch-durable-ok',slot,'')}catch(e){}
+      try{if(slot&&typeof a93MaybeCheckpoint==='function')a93MaybeCheckpoint(slot,raw,false)}catch(e){}
+      try{if(typeof A9835_STATS!=='undefined')A9835_STATS.saves++;if(typeof A9837_STATS!=='undefined')A9837_STATS.saves++;if(typeof A9837_CONFLICT!=='undefined'&&slot)A9837_CONFLICT.active=false}catch(e){}
+      return true;
+    }
+    try{if(slot&&typeof a91EmergencyWrite==='function')a91EmergencyWrite(slot,raw,'alpha99.69-batch-write-failed')}catch(e){}
+    try{if(slot&&typeof a93QueueRescue==='function')a93QueueRescue(slot,raw,'alpha99.69-batch-write-failed')}catch(e){}
+    try{if(typeof a91SetStatus==='function')a91SetStatus(false,'batch-save-failed',slot,wr?.error?.message||wr?.error||'write-failed')}catch(e){}
+    return false;
   }
   async function a9962BatchEnhanceVariant(v,mode='once'){
     if(A9962_BATCH_BUSY){toast('批次強化正在處理中');return false}
@@ -33460,9 +33524,12 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
       if(!commit?.ok){toast(commit?.reason||'批次期間背包狀態已變更，本次強化已取消');return false}
       if(lastRec){try{a23RecordEnhance(v.id,lastRec.from,lastRec.to,lastRec.scroll,lastRec.result,lastRec.p);if(state?.enhanceRules?.last)state.enhanceRules.last.location='inventory-batch'}catch(e){}}
       // 不產生逐件強化日誌，甚至不寫摘要到戰鬥日誌；只用單一 toast 回報。
-      derive();save();try{renderDrawers()}catch(e){render()}
+      derive();const saveOk=a9969BatchSave();
+      // 超大量批次先讓出一次事件迴圈，讓剛完成的序列化字串/暫存陣列有機會被GC，再重畫背包。
+      if(group.count>=2048)await a9962Yield();
+      try{renderDrawers()}catch(e){render()}
       const msg=a9962Summary(v.id,mode,group,levels,alive,destroyed,used,shortage,blocked);
-      window.__A9962_LAST_BATCH__={ok:true,id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,summary:msg,yields,profileBuilds,blessRangeBuilds,engine:'alpha99.67-compact'};
+      window.__A9962_LAST_BATCH__={ok:true,id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,summary:msg,yields,profileBuilds,blessRangeBuilds,saveOk,engine:'alpha99.67-compact',largeBatch:'alpha99.69-single-serialize'};
       A9967_ENHANCE_PERF.runs++;A9967_ENHANCE_PERF.attempts+=attempts;A9967_ENHANCE_PERF.yields+=yields;A9967_ENHANCE_PERF.profileBuilds+=profileBuilds;A9967_ENHANCE_PERF.blessRangeBuilds+=blessRangeBuilds;
       A9967_ENHANCE_PERF.last={id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,yields,profileBuilds,blessRangeBuilds,mobile:mobileBatch};
       toast(msg);return true;
@@ -33495,7 +33562,7 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     finally{Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;if(snap){state=snap;try{derive();render()}catch(e){}}}
     return{ok:rows.every(x=>x.ok),build:'B1.0 Alpha99.62',total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
   }
-  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD,engine:'alpha99.67-compact',sliceMs:A9967_BATCH_SLICE_MS,specialCommit:'signature-rescan-transactional',perf:()=>({...A9967_ENHANCE_PERF,last:A9967_ENHANCE_PERF.last?{...A9967_ENHANCE_PERF.last}:null})};
+  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD,engine:'alpha99.67-compact',sliceMs:A9967_BATCH_SLICE_MS,specialCommit:'signature-rescan-transactional',largeBatch:'alpha99.69-single-serialize',batchSave:a9969BatchSave,perf:()=>({...A9967_ENHANCE_PERF,last:A9967_ENHANCE_PERF.last?{...A9967_ENHANCE_PERF.last}:null})};
   function a9931OpenVariant(token){
     const v=A9931_CACHE.get(String(token));if(!v)return false;if(v.kind==='normal'&&!a9931Gear(v.id))return a68OpenItem(v.id,'');
     const m=a68EnsureModal();m.dataset.item=v.id;m.dataset.slot='';m.dataset.a9931Token=v.token;const body=m.querySelector('#a68-modal-body');body.innerHTML=a9931DetailHtml(v);m.classList.add('open');
@@ -38288,6 +38355,61 @@ const A9967_BUILD='B1.0 Alpha99.67';
   window.__A9968_TEST__={build:A9968_BUILD,audit,probe,applyVersion,previous:window.__A9967_TEST__||null};
 })();
 
+// ===== Alpha99.69：超大量整組強化記憶體修正 =====
+(()=>{
+  const A9969_BUILD='B1.0 Alpha99.69';
+  function applyVersion(){
+    window.__BUILD_VERSION__=A9969_BUILD;
+    try{document.title='樓梯口天堂 · '+A9969_BUILD}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=A9969_BUILD}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.69：修正8000件以上整組+9可能造成Out of Memory；批次存檔改單次序列化、分堆簽章移除逐件JSON字串化，強化機率與RNG順序不變。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.69｜超大量整組強化記憶體修正｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=A9969_BUILD+' · 超大量強化低記憶體'}catch(e){}
+    try{if(state){state.saveMeta=state.saveMeta||{};state.saveMeta.batchEnhanceMemory='alpha99.69'}}catch(e){}
+  }
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const c=window.__A9962_BATCH_CORE__;
+      add('99.68交易式提交保留',c?.specialCommit==='signature-rescan-transactional',{specialCommit:c?.specialCommit});
+      add('超大量批次單次序列化存檔已接入',c?.largeBatch==='alpha99.69-single-serialize'&&typeof c?.batchSave==='function',{largeBatch:c?.largeBatch});
+      add('99.67機率/RNG核心保留',c?.engine==='alpha99.67-compact',{engine:c?.engine});
+      add('手機6ms/256次yield保留',c?.sliceMs===6&&c?.yieldEvery===256,{sliceMs:c?.sliceMs,yieldEvery:c?.yieldEvery});
+      add('99.68回歸仍通過',window.__A9968_TEST__?.audit?.().ok===true,window.__A9968_TEST__?.audit?.());
+    }catch(e){add('Alpha99.69 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9969_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  function seeded(seed){let s=seed>>>0;return()=>{s=(Math.imul(s,1664525)+1013904223)>>>0;return s/4294967296}}
+  async function stress(count=8000,{realSave=false,seed=0}={}){
+    count=Math.max(1,Math.floor(Number(count)||1));
+    const snap=state?JSON.parse(JSON.stringify(state)):null,oldRnd=Math.random,oldSave=save,oldRD=renderDrawers,oldRender=render,oldToast=toast,oldStringify=JSON.stringify;
+    let stateStringifies=0,totalStringifies=0,maxStateJson=0,saveCalls=0,drawCalls=0;
+    try{
+      a76TestReset('elf',60);state.inventory={clk_elf:count,scroll_armor:count*12};state.gearInventoryMeta={};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();
+      Math.random=seed?seeded(seed):()=>0;toast=()=>{};
+      if(!realSave){save=()=>{saveCalls++;return true};renderDrawers=()=>{drawCalls++;return true};render=()=>true}
+      else{renderDrawers=()=>{drawCalls++;return true};render=()=>true}
+      JSON.stringify=function(v,...rest){totalStringifies++;const r=oldStringify.call(JSON,v,...rest);if(v===state){stateStringifies++;maxStateJson=Math.max(maxStateJson,r.length)}return r};
+      const v=window.__A9931_TEST__?.variants?.().find(x=>x.id==='clk_elf'&&x.kind==='plain');const t0=performance.now();const ok=await window.__A9962_BATCH_CORE__.run(v,'to9'),ms=performance.now()-t0;
+      const vs=(window.__A9931_TEST__?.variants?.()||[]).filter(x=>x.id==='clk_elf'),sum=vs.reduce((n,x)=>n+Number(x.count||0),0);
+      return{ok:ok===true&&sum===Number(state.inventory.clk_elf||0)&&Number(state.inventory.scroll_armor||0)>=0,count,ms,stateStringifies,totalStringifies,maxStateJson,saveCalls,drawCalls,total:Number(state.inventory.clk_elf||0),metaLen:Number(state.gearInventoryMeta?.clk_elf?.length||0),legacyEnhanceLen:Number(state.enhanceInventory?.clk_elf?.length||0),scrollLeft:Number(state.inventory.scroll_armor||0),variants:vs.map(x=>({en:Number(x.meta?.en||0),count:Number(x.count||0)})),last:window.__A9962_LAST_BATCH__};
+    }catch(e){return{ok:false,count,error:String(e?.stack||e),stateStringifies,totalStringifies,maxStateJson}}
+    finally{JSON.stringify=oldStringify;Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;try{if(snap){state=snap;derive();render()}else state=null}catch(e){}applyVersion()}
+  }
+  async function probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const p68=await window.__A9968_TEST__?.probe?.();add('Alpha99.68完整回歸',p68?.ok===true,{passed:p68?.passed,total:p68?.total});
+      for(const n of [8000,10000,20000]){const r=await stress(n,{realSave:false,seed:0});add(n+'件+9壓力測試',r.ok&&r.stateStringifies===0&&r.totalStringifies<50&&r.variants.length===1&&r.variants[0].en===9&&r.variants[0].count===n,{ms:r.ms,stateStringifies:r.stateStringifies,totalStringifies:r.totalStringifies,variants:r.variants,last:r.last})}
+      const real=await stress(8000,{realSave:true,seed:0});add('8000件真實存檔只完整序列化1次',real.ok&&real.stateStringifies===1&&real.totalStringifies<60,{ms:real.ms,stateStringifies:real.stateStringifies,totalStringifies:real.totalStringifies,maxStateJson:real.maxStateJson,last:real.last});
+    }catch(e){add('Alpha99.69 probe exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9969_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  applyVersion();
+  try{if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);applyVersion();return r}}}catch(e){}
+  window.__A9969_TEST__={build:A9969_BUILD,audit,probe,stress,applyVersion,previous:window.__A9968_TEST__||null};
+})();
+
 })();
 </script>
 
@@ -38805,4 +38927,17 @@ const A9967_BUILD='B1.0 Alpha99.67';
   }catch(e){}
 })();
 </script>
+<script id="a9969-final-version">
+(()=>{
+  const B='B1.0 Alpha99.69';
+  function apply(){try{window.__A9969_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+})();
+</script>
+
 </body></html>
