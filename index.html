@@ -399,8 +399,42 @@ pAnim.ft+=dt;if(pAnim.ft>=1/FPS){pAnim.ft=0;pAnim.frame++;const s=playerSet(),cn
 function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;tick(dt,now);raf=requestAnimationFrame(loop)}
 function floatDamage(i,dmg,enemy=false,crit=false){const slot=document.querySelector('.mslot[data-i="'+i+'"]');if(!slot)return;const b=$('#battle').getBoundingClientRect(),r=slot.getBoundingClientRect(),e=document.createElement('div');e.className='float-dmg'+(enemy?' enemy':'')+(crit?' crit':'');e.textContent=(enemy?'-':'-')+dmg;e.style.left=(r.left-b.left+r.width/2+(Math.random()-.5)*18)+'px';e.style.top=(r.top-b.top+r.height*.32)+'px';$('#battle').appendChild(e);setTimeout(()=>e.remove(),900)}
 function floatPlayer(dmg){const b=$('#battle').getBoundingClientRect(),r=$('#player-side').getBoundingClientRect(),e=document.createElement('div');e.className='float-dmg enemy';e.textContent='-'+dmg;e.style.left=(r.left-b.left+r.width/2)+'px';e.style.top=(r.top-b.top+r.height*.3)+'px';$('#battle').appendChild(e);setTimeout(()=>e.remove(),900)}
-function renderHUDDynamic(){if(!state)return;const p=state.player,hp=100*p.hp/p.maxHp,mp=100*p.mp/p.maxMp;$('#hud-hp').style.width=hp+'%';$('#hud-mp').style.width=mp+'%';$('#hud-hpt').textContent=Math.ceil(p.hp)+' / '+p.maxHp;$('#hud-mpt').textContent=Math.ceil(p.mp)+' / '+p.maxMp;$('#mh-hp').style.width=hp+'%';$('#mh-mp').style.width=mp+'%';const need=expNeed(p.lv),ep=100*p.exp/need;$('#exp-fill').style.width=ep+'%';$('#exp-txt').textContent='EXP '+fmt(p.exp)+' / '+fmt(need)+' ('+ep.toFixed(1)+'%)';$('#hud-gold').textContent=fmt(p.gold);$('#hud-ac').textContent=p.ac;$('#hud-mr').textContent=p.mr;$('#hud-atk').textContent=p.atk;$('#hud-lv').textContent=p.lv;const ha=$('#hud-align');if(ha)ha.textContent='中立 0';$('#mh-lv').textContent='Lv.'+p.lv;$('#mh-hpt').textContent=Math.ceil(p.hp)+'/'+p.maxHp;$('#mh-mpt').textContent=Math.ceil(p.mp)+'/'+p.maxMp;$('.start-btn').classList.toggle('running',state.running);$('.start-btn').textContent=state.running?'■ 停止狩獵':'▶ 開始狩獵';$('.mobile-start').classList.toggle('running',state.running);$('.mobile-start').textContent=state.running?'■ 停止':'▶ 開始'}
-function renderBattleDynamic(){if(!state)return;const pimg=$('#player-img');const pu=playerFrameUrl();if(pimg.dataset.src!==pu){pimg.dataset.src=pu;pimg.src=pu}pimg.classList.toggle('hurt',pAnim.hitFlash>0);for(let i=0;i<MOB_COUNT;i++){const el=document.querySelector('.mslot[data-i="'+i+'"]'),x=state.mobs[i],m=mobData(x);if(!el||!x||!m)continue;el.classList.toggle('target',i===state.target);const img=el.querySelector('.mob-img'),u=mobFrameUrl(x);if(img.dataset.src!==u){img.dataset.src=u;img.src=u}img.classList.toggle('hurt',x.hitFlash>0);el.querySelector('.mob-name').textContent=m.n;el.querySelector('.mob-hp i').style.width=(100*x.hp/x.maxHp)+'%'} }
+// ===== Alpha99.64：底層動態 DOM 快取（不改任何戰鬥數值） =====
+let A9964_BASE_HUD_CACHE=null,A9964_BASE_BATTLE_CACHE=null;
+const A9964_BASE_DOM_STATS={hudCacheBuild:0,battleCacheBuild:0,textWrites:0,styleWrites:0,classWrites:0};
+function a9964BaseText(el,v){if(!el)return;v=String(v);if(el.textContent!==v){el.textContent=v;A9964_BASE_DOM_STATS.textWrites++}}
+function a9964BaseWidth(el,v){if(!el)return;v=String(v);if(el.style.width!==v){el.style.width=v;A9964_BASE_DOM_STATS.styleWrites++}}
+function a9964BaseClass(el,n,on){if(!el)return;on=!!on;if(el.classList.contains(n)!==on){el.classList.toggle(n,on);A9964_BASE_DOM_STATS.classWrites++}}
+function a9964BaseHudDom(){
+  const c=A9964_BASE_HUD_CACHE;
+  if(c&&c.hp?.isConnected&&c.start?.isConnected)return c;
+  A9964_BASE_DOM_STATS.hudCacheBuild++;
+  return A9964_BASE_HUD_CACHE={
+    hp:document.getElementById('hud-hp'),mp:document.getElementById('hud-mp'),hpt:document.getElementById('hud-hpt'),mpt:document.getElementById('hud-mpt'),
+    mhhp:document.getElementById('mh-hp'),mhmp:document.getElementById('mh-mp'),expFill:document.getElementById('exp-fill'),expTxt:document.getElementById('exp-txt'),
+    gold:document.getElementById('hud-gold'),ac:document.getElementById('hud-ac'),mr:document.getElementById('hud-mr'),atk:document.getElementById('hud-atk'),lv:document.getElementById('hud-lv'),align:document.getElementById('hud-align'),
+    mhlv:document.getElementById('mh-lv'),mhhpt:document.getElementById('mh-hpt'),mhmpt:document.getElementById('mh-mpt'),start:document.querySelector('.start-btn'),mobileStart:document.querySelector('.mobile-start')
+  };
+}
+function a9964BaseBattleDom(){
+  const c=A9964_BASE_BATTLE_CACHE;
+  if(c&&c.player?.isConnected&&c.grid?.isConnected&&c.slots?.length===MOB_COUNT&&c.slots.every(x=>!x.el||x.el.isConnected))return c;
+  const slots=[];for(let i=0;i<MOB_COUNT;i++){const el=document.querySelector('.mslot[data-i="'+i+'"]');slots.push({el,img:el?.querySelector('.mob-img')||null,name:el?.querySelector('.mob-name')||null,hp:el?.querySelector('.mob-hp i')||null})}
+  A9964_BASE_DOM_STATS.battleCacheBuild++;
+  return A9964_BASE_BATTLE_CACHE={player:document.getElementById('player-img'),grid:document.getElementById('monster-grid'),slots};
+}
+function renderHUDDynamic(){
+  if(!state)return;const d=a9964BaseHudDom(),p=state.player,hp=100*p.hp/p.maxHp,mp=100*p.mp/p.maxMp;
+  a9964BaseWidth(d.hp,hp+'%');a9964BaseWidth(d.mp,mp+'%');a9964BaseText(d.hpt,Math.ceil(p.hp)+' / '+p.maxHp);a9964BaseText(d.mpt,Math.ceil(p.mp)+' / '+p.maxMp);
+  a9964BaseWidth(d.mhhp,hp+'%');a9964BaseWidth(d.mhmp,mp+'%');const need=expNeed(p.lv),ep=100*p.exp/need;a9964BaseWidth(d.expFill,ep+'%');a9964BaseText(d.expTxt,'EXP '+fmt(p.exp)+' / '+fmt(need)+' ('+ep.toFixed(1)+'%)');
+  a9964BaseText(d.gold,fmt(p.gold));a9964BaseText(d.ac,p.ac);a9964BaseText(d.mr,p.mr);a9964BaseText(d.atk,p.atk);a9964BaseText(d.lv,p.lv);a9964BaseText(d.align,'中立 0');
+  a9964BaseText(d.mhlv,'Lv.'+p.lv);a9964BaseText(d.mhhpt,Math.ceil(p.hp)+'/'+p.maxHp);a9964BaseText(d.mhmpt,Math.ceil(p.mp)+'/'+p.maxMp);
+  a9964BaseClass(d.start,'running',state.running);a9964BaseText(d.start,state.running?'■ 停止狩獵':'▶ 開始狩獵');a9964BaseClass(d.mobileStart,'running',state.running);a9964BaseText(d.mobileStart,state.running?'■ 停止':'▶ 開始');
+}
+function renderBattleDynamic(){
+  if(!state)return;const d=a9964BaseBattleDom(),pimg=d.player;if(pimg){const pu=playerFrameUrl();if(pimg.dataset.src!==pu){pimg.dataset.src=pu;pimg.src=pu;A9964_BASE_DOM_STATS.styleWrites++}a9964BaseClass(pimg,'hurt',pAnim.hitFlash>0)}
+  for(let i=0;i<MOB_COUNT;i++){const q=d.slots[i],el=q?.el,x=state.mobs[i],m=mobData(x);if(!el||!x||!m)continue;a9964BaseClass(el,'target',i===state.target);const img=q.img,u=mobFrameUrl(x);if(img&&img.dataset.src!==u){img.dataset.src=u;img.src=u;A9964_BASE_DOM_STATS.styleWrites++}a9964BaseClass(img,'hurt',x.hitFlash>0);a9964BaseText(q.name,m.n);a9964BaseWidth(q.hp,(100*x.hp/x.maxHp)+'%')}
+}
 function renderHUD(){const p=state.player;$('#hud-name').textContent=p.name;$('#mh-name').textContent=p.name+' · '+CLASS[p.cls].n;$('#hud-class').textContent=CLASS[p.cls].n;$('#hud-portrait').src=portraitUrl(p.cls,p.sex);$('#mh-portrait').src=portraitUrl(p.cls,p.sex);$('#zone-title').textContent=mapTitle(state.mapId);$('#player-label').innerHTML='<b>'+escapeHtml(p.name)+'</b> · '+CLASS[p.cls].n;updateSceneBackground();updateBgm();renderHUDDynamic()}
 function renderMobs(){const g=$('#monster-grid');if(g.children.length!==MOB_COUNT){g.innerHTML='';for(let i=0;i<MOB_COUNT;i++){const d=document.createElement('div');d.className='mslot';d.dataset.i=i;d.innerHTML='<div class="mob-fallback">◆</div><img class="mob-img" alt=""><div class="mob-name">—</div><div class="mob-hp"><i></i></div>';d.addEventListener('click',()=>{state.target=i;renderBattleDynamic();save()});d.querySelector('img').onerror=function(){this.style.visibility='hidden';d.querySelector('.mob-fallback').style.display='block'};d.querySelector('img').onload=function(){this.style.visibility='visible';d.querySelector('.mob-fallback').style.display='none'};g.appendChild(d)}}renderBattleDynamic()}
 function renderSummary(){const s=state.session;$('#sum-kills').textContent=fmt(s.kills);$('#sum-exp').textContent=fmt(s.exp);$('#sum-gold').textContent=fmt(s.gold);$('#sum-items').textContent=fmt(s.items)}
@@ -23406,19 +23440,30 @@ const A9842_RARITIES=[
  {key:'legend',label:'★傳說',weight:.43,count:67}
 ];
 const A9842_PANDORA_IDS={"common":["arm_105","arm_103","arm_68","glv_glove","arm_70","arm_109","arm_74","amr_jacket","arm_93","arm_111","arm_75","arm_91","arm_76","arm_48","arm_49","clk_mr","hlm_mr","arm_86","shd_gnome","hlm_gnome","arm_90","arm_104","bot_short","arm_78","clk_elf","hlm_elf","shd_elf","amr_robe","arm_66","arm_112","arm_77","arm_92","hlm_silver","clk_oasis","hlm_oasis","amr_oasis","arm_64","shd_bone","amr_bone","hlm_bone","arm_42","arm_67","arm_43","arm_63","arm_65","pet_fang_fight","pet_fang_hound","new_item_165","new_item_189","new_item_179","new_item_181","new_item_172","new_item_237","new_item_177","new_item_174","new_item_175","new_item_171","new_item_180","new_item_188","new_item_157","new_item_169","new_item_183","new_item_182","new_item_164","new_item_173","new_item_178","scroll_armor","bk_elf_groundtrap","bk_elf_release","new_item_195","new_item_elfwing","new_item_170","new_item_154","new_item_163","new_item_168","new_item_187","new_item_160","new_item_166","bk_mummy_curse","bk_haste_spell","bk_weaken","bk_charm","bk_heal2","bk_zombie","bk_dark_shadow","bk_slow","bk_break","bk_mana_drain","new_item_176","new_item_151","wpn_11","wpn_28","wpn_26","wpn_3","wpn_6","wpn_10","wpn_13","wpn_4","wpn_15","wpn_alien","wpn_23","wpn_21","wpn_1","wpn_35","wpn_invader","wpn_38","wpn_7","wpn_2","wpn_shortbow","wpn_shortsword","wpn_34","wpn_36","wpn_17","wpn_dagger2","wpn_elfbow","wpn_24","wpn_elfsword","wpn_37","wpn_dagger1","wpn_8","wpn_25","wpn_27","wpn_39","wpn_battleaxe","wpn_19","wpn_oakwand","wpn_14","wpn_9","wpn_40","wpn_41","wpn_scimitar"],"good":["tsh_tshirt","arm_62","arm_69","hlm_mage","amr_magerobe","amr_plate","arm_60","arm_87","arm_108","arm_73","arm_71","arm_61","new_item_194","new_item_158","new_item_155","new_item_161","new_item_152","scroll_weapon","bk_elf_magicerase","bk_full_heal","bk_sleep_mist","bk_berserk","bk_disease","bk_greater_haste","bk_dex_up","bk_holy_light","bk_seal","bk_regen","wpn_giantaxe","wpn_witchwand","wpn_halberd","wpn_longsword","wpn_20","wpn_16","wpn_silversword","wpn_18"],"fine":["arm_102","shd_redknight","arm_53","arm_98","arm_85","arm_50","arm_51","arm_110","arm_100","arm_79","arm_94","arm_113","hlm_steel","arm_115","acc_127","acc_128","acc_129","acc_123","pet_fang_victory","new_item_221","bk_elf_summon","bk_elf_winddash","bk_elf_stormshot","bk_ice_lance","bk_earthquake","bk_meditation","bk_magic_shield","wpn_damascus","wpn_crystalwand","wpn_redknight","wpn_rapier","wpn_silveraxe","wpn_32"],"rare":["arm_99","arm_47","glv_crystal","arm_59","arm_44","arm_45","arm_46","arm_89","arm_72","acc_132","blt_body","acc_134","pet_fang_gold","acc_130","acc_131","new_item_mermaid_scale","new_item_190","new_item_192","new_item_191","bk_solid_shield","bk_reduction_armor","bk_shock_stun","new_item_193","new_item_167","panacea_white","new_item_159","new_item_156","new_item_162","new_item_153","bk_dark_erup","bk_dark_fang","bk_dark_dodge","bk_dark_crit","bk_dark_burn","scroll_acc","bk_elf_triple","bk_elf_earthbless","bk_elf_earthshield","bk_elf_lifespring","bk_elf_lifebless","bk_elf_seal","bk_elf_dancefire","bk_elf_soul","bk_elf_stormeye","new_item_bless_wpn","new_item_bless_arm","new_item_bless_acc","bk_holy_dash","bk_thunder_storm","bk_quake","bk_cancel","bk_str_up","wpn_strwand","wpn_31","wpn_29","wpn_berserker","wpn_12","wpn_katana","wpn_siruge","wpn_manawand","wpn_33","wpn_mailbreaker","wpn_2hsword"],"legend":["arm_106","arm_54","arm_80","arm_82","arm_55","arm_107","arm_81","glv_dk","bot_dk","amr_dk","hlm_dk","arm_57","arm_101","arm_97","amr_kurt","hlm_kurt","arm_83","arm_56","glv_demon","bot_demon","amr_demon","hlm_demon","arm_84","arm_96","arm_88","amu_str","acc_135","acc_136","acc_137","acc_138","acc_118","acc_124","blt_mr","rng_mr","acc_126","acc_125","acc_119","acc_120","amu_int","acc_116","acc_demonbane","acc_122","acc_133","pet_fang_steel","acc_117","acc_121","item_ancient_scroll","bk_spike_armor","scroll_weapon_b","scroll_armor_b","bk_dark_double","bk_elf_summon2","bk_elf_blazewpn","bk_elf_flamesoul","bk_elf_steelguard","bk_elf_attrfire","bk_fire_storm","bk_summon","bk_blizzard","bk_disintegrate","bk_resurrection","bk_meteor","bk_holy_barrier","bk_tornado","bk_invisible","bk_soul_up","wpn_flaming_angel"]};
+// ===== Alpha99.66：潘朵拉靜態獎池快取核心 =====
+// DATA.items / A9842_PANDORA_IDS 在本單檔版本執行期間皆為靜態資料；獎池只需驗證/整理一次。
+// 保留原本每抽 2 次 Math.random（稀有度一次、該稀有度物品一次），不改抽獎機率與亂數消耗順序。
+let A9966_PANDORA_POOL_CACHE=null;
+const A9966_PANDORA_TOTAL=A9842_RARITIES.reduce((s,r)=>s+r.weight,0);
+const A9966_PANDORA_PERF={poolBuilds:0,picks:0};
 function a9842Pool(){
-  return Object.fromEntries(Object.entries(A9842_PANDORA_IDS).map(([k,v])=>[k,v.filter(id=>!!DATA.items?.[id])]));
+  if(A9966_PANDORA_POOL_CACHE)return A9966_PANDORA_POOL_CACHE;
+  A9966_PANDORA_PERF.poolBuilds++;
+  const built=Object.fromEntries(Object.entries(A9842_PANDORA_IDS).map(([k,v])=>[k,v.filter(id=>!!DATA.items?.[id])]));
+  A9966_PANDORA_POOL_CACHE=Object.freeze(Object.fromEntries(Object.entries(built).map(([k,v])=>[k,Object.freeze(v.slice())])));
+  return A9966_PANDORA_POOL_CACHE;
 }
 function a9842PoolAudit(){
   const p=a9842Pool(),counts=Object.fromEntries(A9842_RARITIES.map(r=>[r.key,p[r.key].length]));
   const ids=Object.values(p).flat(),missing=Object.entries(A9842_PANDORA_IDS).flatMap(([k,v])=>v.filter(id=>!DATA.items?.[id]).map(id=>k+':'+id));
   return{ok:A9842_RARITIES.every(r=>counts[r.key]===r.count)&&ids.length===330&&new Set(ids).size===330&&missing.length===0,counts,total:ids.length,unique:new Set(ids).size,missing};
 }
-function a9842PandoraRoll(){
- const p=a9842Pool(),total=A9842_RARITIES.reduce((s,r)=>s+r.weight,0);let x=Math.random()*total,rar=A9842_RARITIES[A9842_RARITIES.length-1];
- for(const r of A9842_RARITIES){x-=r.weight;if(x<0){rar=r;break}}
- const arr=p[rar.key]||[];return{rarity:rar,id:arr[Math.floor(Math.random()*arr.length)]||null};
+function a9966PandoraPickInto(out){
+  const p=a9842Pool();let x=Math.random()*A9966_PANDORA_TOTAL,rar=A9842_RARITIES[A9842_RARITIES.length-1];
+  for(const r of A9842_RARITIES){x-=r.weight;if(x<0){rar=r;break}}
+  const arr=p[rar.key]||[];out=out||{};out.rarity=rar;out.id=arr[Math.floor(Math.random()*arr.length)]||null;A9966_PANDORA_PERF.picks++;return out;
 }
+function a9842PandoraRoll(){return a9966PandoraPickInto({})}
 function a9842Ensure(){
  if(!state)return false;
  state.a9842=(state.a9842&&typeof state.a9842==='object')?state.a9842:{};
@@ -33283,43 +33328,59 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     finally{Math.random=oldRnd;window.confirm=oldConfirm;if(snap){state=snap;try{derive();render()}catch(e){}}}
     return{ok:rows.every(x=>x.ok),build:'B1.0 Alpha99.59',total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
   }
-  // ===== Alpha99.62：背包同分堆整組批次強化（手機低負載） =====
-  // 設計：只在記憶體模擬；不逐件 save/render/log；完成後一次提交、一次存檔、一次重畫。
-  // 大批量每 256 次判定主動讓出事件迴圈，避免手機長時間佔滿主執行緒。
+  // ===== Alpha99.62 / Alpha99.67：背包同分堆整組批次強化（第二階段手機低負載） =====
+  // Alpha99.67：保留原本每一次強化 RNG 判定順序、卷軸輪流分配與最終規則；只降低暫存物件/重算/GC。
+  // 大批量：最多每 256 次判定讓出事件迴圈；手機若單片工作超過約 6ms 會提早 yield。
   let A9962_BATCH_BUSY=false;
   const A9962_BATCH_YIELD_EVERY=256;
   const A9962_BATCH_GUARD=200000;
+  const A9967_BATCH_SLICE_MS=6;
+  const A9967_ENHANCE_PERF={runs:0,attempts:0,yields:0,profileBuilds:0,blessRangeBuilds:0,metaNormalizations:0,last:null};
   function a9962Yield(){return new Promise(resolve=>setTimeout(resolve,0))}
-  function a9962CloneMeta(id,m){return a9931Meta(id,JSON.parse(JSON.stringify(m||{})))}
+  function a9967Mobile(){
+    try{const x=window.__A9948_TEST__?.stats?.();if(x&&typeof x.mobile==='boolean')return !!x.mobile}catch(e){}
+    const ua=String(navigator?.userAgent||'');if(/Android|iPhone|iPad|iPod|Mobile/i.test(ua))return true;
+    try{return !!matchMedia?.('(pointer: coarse)')?.matches&&Math.min(Number(innerWidth||9999),Number(innerHeight||9999))<=1000}catch(e){return false}
+  }
+  // a9931Meta / a16CleanGearMeta 本身已建立新的乾淨 metadata；不再先 JSON stringify/parse 一次。
+  function a9962CloneMeta(id,m){A9967_ENHANCE_PERF.metaNormalizations++;return a9931Meta(id,m||{})}
   function a9962CurrentGroup(v){
     if(!v||!v.id)return null;const id=v.id;try{a16EnsureEnhanceState()}catch(e){}
     if(v.kind==='plain'){
-      const count=Math.max(0,Number(a16PlainCount(id)||0));
-      return{kind:'plain',id,sig:'plain',count,copies:Array.from({length:count},()=>a9962CloneMeta(id,{en:0,affix:{},seteff:false}))};
+      const count=Math.max(0,Number(a16PlainCount(id)||0)),template=a9962CloneMeta(id,{en:0,affix:{},seteff:false});
+      // copies 僅保留 API 相容性；同一分堆 metadata 本來就完全相同，因此共用單一 template 參照即可。
+      return{kind:'plain',id,sig:'plain',count,startEn:0,template,indices:null,copies:Array(count).fill(template)};
     }
-    const sig=String(v.sig||a9931Sig(id,v.meta||{})),arr=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],copies=[];
-    for(const raw of arr){const m=a9962CloneMeta(id,raw);if(a9931Sig(id,m)===sig)copies.push(m)}
-    return{kind:'special',id,sig,count:copies.length,copies};
+    const sig=String(v.sig||a9931Sig(id,v.meta||{})),arr=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],indices=[];let template=null;
+    for(let i=0;i<arr.length;i++){
+      const m=a9962CloneMeta(id,arr[i]);
+      if(a9931Sig(id,m)===sig){indices.push(i);if(!template)template=m}
+    }
+    template=template||a9962CloneMeta(id,v.meta||{});const count=indices.length;
+    return{kind:'special',id,sig,count,startEn:Math.max(0,Number(template.en||0)),template,indices,copies:Array(count).fill(template)};
   }
-  function a9962CommitGroup(group,copies,destroyed,scroll,used){
+  function a9962CommitGroup(group,levels,alive,destroyed,scroll,used){
     const id=group.id;
-    // 特殊分堆：只移除本次鎖定的同簽名實體，不碰同道具的其他強化/詞綴/席琳分堆。
+    // 特殊分堆：使用建立 group 時已記錄的原陣列 index；提交時不再 clone + signature 第二次掃描。
     if(group.kind==='special'){
-      const arr=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],keep=[];let removed=0;
-      for(const raw of arr){const m=a9962CloneMeta(id,raw);if(removed<group.count&&a9931Sig(id,m)===group.sig){removed++;continue}keep.push(raw)}
+      const src=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],idx=group.indices||[],keep=[];let p=0;
+      for(let i=0;i<src.length;i++){if(p<idx.length&&i===idx[p]){p++;continue}keep.push(src[i])}
       state.gearInventoryMeta[id]=keep;if(!keep.length)delete state.gearInventoryMeta[id];
     }
-    const arr=(state.gearInventoryMeta[id]||(state.gearInventoryMeta[id]=[]));
-    for(const c of copies){if(!c.alive)continue;const m=a16CleanGearMeta(id,c.meta);if(a16MetaSpecial(m))arr.push(m)}
+    const arr=(state.gearInventoryMeta[id]||(state.gearInventoryMeta[id]=[])),base=group.template||{en:group.startEn||0,affix:{},seteff:false};
+    for(let i=0;i<group.count;i++){
+      if(!alive[i])continue;
+      const m=a16CleanGearMeta(id,{...base,en:Number(levels[i]||0)});if(a16MetaSpecial(m))arr.push(m);
+    }
     if(!arr.length)delete state.gearInventoryMeta[id];
     if(destroyed>0){const left=Math.max(0,Number(state.inventory?.[id]||0)-destroyed);if(left>0)state.inventory[id]=left;else delete state.inventory[id]}
     if(used>0){const left=Math.max(0,Number(state.inventory?.[scroll]||0)-used);if(left>0)state.inventory[scroll]=left;else delete state.inventory[scroll]}
     a16SyncLegacyPools();
   }
-  function a9962Summary(id,mode,group,copies,destroyed,used,shortage,blocked){
-    const d=a8Item(id)||{n:id},levels={};
-    for(const c of copies){if(!c.alive)continue;const en=Math.max(0,Number(c.meta?.en||0));levels[en]=(levels[en]||0)+1}
-    const parts=Object.keys(levels).map(Number).sort((a,b)=>a-b).map(en=>'+'+en+' ×'+levels[en]);
+  function a9962Summary(id,mode,group,levels,alive,destroyed,used,shortage,blocked){
+    const d=a8Item(id)||{n:id},lv={};
+    for(let i=0;i<group.count;i++){if(!alive[i])continue;const en=Math.max(0,Number(levels[i]||0));lv[en]=(lv[en]||0)+1}
+    const parts=Object.keys(lv).map(Number).sort((a,b)=>a-b).map(en=>'+'+en+' ×'+lv[en]);
     if(destroyed)parts.push('破壞 ×'+destroyed);if(blocked)parts.push('停止 ×'+blocked);
     const tag=mode==='once'?'整組強化 +1':mode==='safe'?'整組強化安定':'整組強化至 +9';
     return tag+'：'+(d.n||id)+' ×'+group.count+' → '+(parts.join('、')||'沒有變化')+'｜消耗 '+used+' 張卷軸'+(shortage?'｜卷軸不足，已停止':'');
@@ -33332,49 +33393,64 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     const cap=a16CapFor(d),goal=mode==='safe'?Math.max(0,Number(d.safe||0)):mode==='to9'?9:null;
     if(mode==='to9'&&cap<9){toast('此裝備強化上限只有 +'+cap+'，無法強化至 +9');return false}
     const group=a9962CurrentGroup(v);if(!group||group.count<1){toast('找不到這一組裝備');return false}
-    const startEn=Math.max(0,Number(group.copies[0]?.en||0));
+    const startEn=Math.max(0,Number(group.startEn||0));
     if(mode==='safe'&&startEn>=goal){toast('目前已達安定值');return false}
     if(mode==='to9'&&startEn>=9){toast('目前已達 +9');return false}
     const firstProfile=a23EnhanceProfile(d,startEn,scroll);if(firstProfile?.blocked){toast(firstProfile.reason||'目前無法強化');return false}
     let available=Math.max(0,Number(a8Count(scroll)||0));if(available<1){toast('強化卷軸不足');return false}
     A9962_BATCH_BUSY=true;document.getElementById('a68-item-modal')?.classList.remove('open');
-    const copies=group.copies.map(m=>({meta:a9962CloneMeta(v.id,m),alive:true,done:false}));
-    let used=0,attempts=0,destroyed=0,blocked=0,guard=A9962_BATCH_GUARD,lastRec=null,shortage=false;
+
+    // 每件只保留 2 個輕量狀態：目前強化值 + alive/done；不再建立 count 份完整 metadata wrapper。
+    const levels=new Int16Array(group.count);levels.fill(startEn);
+    const alive=new Uint8Array(group.count);alive.fill(1);
+    const done=new Uint8Array(group.count);
+    const profileCache=new Map(),blessCache=new Map(),blessed=!!A16_SCROLLS[scroll]?.blessed,mobileBatch=a9967Mobile();
+    let used=0,attempts=0,destroyed=0,blocked=0,guard=A9962_BATCH_GUARD,lastRec=null,shortage=false,yields=0,profileBuilds=0,blessRangeBuilds=0,sliceAttempts=0,sliceStart=performance.now();
+    const profile=en=>{if(profileCache.has(en))return profileCache.get(en);const p=a23EnhanceProfile(d,en,scroll);profileCache.set(en,p);profileBuilds++;return p};
+    const blessRange=en=>{if(blessCache.has(en))return blessCache.get(en);const r=a23BlessRange(d,en);blessCache.set(en,r);blessRangeBuilds++;return r};
     try{
       while(guard-->0){
         let progressed=false,unfinished=false;
-        for(const c of copies){
-          if(!c.alive||c.done)continue;
-          const en=Math.max(0,Number(c.meta.en||0));
-          if(mode!=='once'&&en>=goal){c.done=true;continue}
+        for(let i=0;i<group.count;i++){
+          if(!alive[i]||done[i])continue;
+          const en=Math.max(0,Number(levels[i]||0));
+          if(mode!=='once'&&en>=goal){done[i]=1;continue}
           unfinished=true;
           if(available<=0){shortage=true;break}
-          const p=a23EnhanceProfile(d,en,scroll);if(p?.blocked){c.done=true;blocked++;continue}
-          available--;used++;attempts++;progressed=true;
+          const p=profile(en);if(p?.blocked){done[i]=1;blocked++;continue}
+          available--;used++;attempts++;sliceAttempts++;progressed=true;
+          // RNG 呼叫位置與 99.62/99.66 相同：每次判定先 1 次；祝福成功時才追加 1 次。
           const roll=Math.random()*100;let result='stay',to=en;
           if(roll<Number(p.succ||0)){
-            let add=1;const s=A16_SCROLLS[scroll];if(s?.blessed){const r=a23BlessRange(d,en);add=r.min+Math.floor(Math.random()*(r.max-r.min+1))}
-            to=Math.min(cap,en+add);c.meta={...c.meta,en:to};result='success';
+            let add=1;if(blessed){const r=blessRange(en);add=r.min+Math.floor(Math.random()*(r.max-r.min+1))}
+            to=Math.min(cap,en+add);levels[i]=to;result='success';
           }else if(roll<Number(p.succ||0)+Number(p.stay||0)){
             result='stay';
           }else{
-            c.alive=false;c.done=true;destroyed++;result='destroy';to=0;
+            alive[i]=0;done[i]=1;destroyed++;result='destroy';to=0;
           }
           lastRec={from:en,to,scroll,result,p};
-          if(mode==='once')c.done=true;else if(c.alive&&Number(c.meta.en||0)>=goal)c.done=true;
-          if(attempts%A9962_BATCH_YIELD_EVERY===0)await a9962Yield();
+          if(mode==='once')done[i]=1;else if(alive[i]&&Number(levels[i]||0)>=goal)done[i]=1;
+
+          // 舊規則最多 256 次一定 yield；手機若一片已超過 6ms，提早讓出 UI 執行權。
+          let doYield=sliceAttempts>=A9962_BATCH_YIELD_EVERY;
+          if(!doYield&&mobileBatch&&(sliceAttempts&31)===0)doYield=(performance.now()-sliceStart)>=A9967_BATCH_SLICE_MS;
+          if(doYield){await a9962Yield();yields++;sliceAttempts=0;sliceStart=performance.now()}
         }
         if(shortage||mode==='once'||!unfinished||!progressed)break;
       }
       if(guard<=0)toast('批次強化安全上限已觸發，已停止');
       if(used<1){toast('沒有可執行的強化');return false}
-      a9962CommitGroup(group,copies,destroyed,scroll,used);
+      a9962CommitGroup(group,levels,alive,destroyed,scroll,used);
       if(lastRec){try{a23RecordEnhance(v.id,lastRec.from,lastRec.to,lastRec.scroll,lastRec.result,lastRec.p);if(state?.enhanceRules?.last)state.enhanceRules.last.location='inventory-batch'}catch(e){}}
       // 不產生逐件強化日誌，甚至不寫摘要到戰鬥日誌；只用單一 toast 回報。
       derive();save();try{renderDrawers()}catch(e){render()}
-      const msg=a9962Summary(v.id,mode,group,copies,destroyed,used,shortage,blocked);window.__A9962_LAST_BATCH__={ok:true,id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,summary:msg};toast(msg);
-      return true;
-    }catch(e){console.error('Alpha99.62 batch enhance',e);toast('批次強化發生錯誤，未完成');return false}
+      const msg=a9962Summary(v.id,mode,group,levels,alive,destroyed,used,shortage,blocked);
+      window.__A9962_LAST_BATCH__={ok:true,id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,summary:msg,yields,profileBuilds,blessRangeBuilds,engine:'alpha99.67-compact'};
+      A9967_ENHANCE_PERF.runs++;A9967_ENHANCE_PERF.attempts+=attempts;A9967_ENHANCE_PERF.yields+=yields;A9967_ENHANCE_PERF.profileBuilds+=profileBuilds;A9967_ENHANCE_PERF.blessRangeBuilds+=blessRangeBuilds;
+      A9967_ENHANCE_PERF.last={id:v.id,mode,count:group.count,attempts,used,destroyed,shortage,blocked,yields,profileBuilds,blessRangeBuilds,mobile:mobileBatch};
+      toast(msg);return true;
+    }catch(e){console.error('Alpha99.67 batch enhance',e);toast('批次強化發生錯誤，未完成');return false}
     finally{A9962_BATCH_BUSY=false}
   }
   async function a9962Probe(){
@@ -33403,7 +33479,7 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     finally{Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;if(snap){state=snap;try{derive();render()}catch(e){}}}
     return{ok:rows.every(x=>x.ok),build:'B1.0 Alpha99.62',total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
   }
-  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD};
+  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD,engine:'alpha99.67-compact',sliceMs:A9967_BATCH_SLICE_MS,perf:()=>({...A9967_ENHANCE_PERF,last:A9967_ENHANCE_PERF.last?{...A9967_ENHANCE_PERF.last}:null})};
   function a9931OpenVariant(token){
     const v=A9931_CACHE.get(String(token));if(!v)return false;if(v.kind==='normal'&&!a9931Gear(v.id))return a68OpenItem(v.id,'');
     const m=a68EnsureModal();m.dataset.item=v.id;m.dataset.slot='';m.dataset.a9931Token=v.token;const body=m.querySelector('#a68-modal-body');body.innerHTML=a9931DetailHtml(v);m.classList.add('open');
@@ -36971,26 +37047,26 @@ const A9954_BUILD='B1.0 Alpha99.54';
     if(Number(state.player.lv||0)<41){toast('潘朵拉需 Lv.41');return false}
     if(Number(state.player.gold||0)<cost){toast('金幣不足');return false}
 
-    const rolls=[],counts={};
+    // Alpha99.66：共用快取抽選器；只保留結果 ID，不保留每抽完整 rarity/roll 物件。
+    const rolls=new Array(n),counts={},tmp={};let valid=0;
     for(let i=0;i<n;i++){
-      const roll=a9842PandoraRoll();
-      if(!roll?.id||!DATA.items?.[roll.id])continue;
-      rolls.push(roll);
-      counts[roll.id]=(counts[roll.id]||0)+1;
+      const roll=a9966PandoraPickInto(tmp),id=roll.id;
+      if(!id||!DATA.items?.[id])continue;
+      rolls[i]=id;valid++;counts[id]=(counts[id]||0)+1;
     }
-    if(rolls.length!==n){
-      console.error('Alpha99.57 Pandora batch incomplete',n,rolls.length);
+    if(valid!==n){
+      console.error('Alpha99.66 Pandora batch incomplete',n,valid);
       toast(n+'連抽資料異常，本次未扣金幣');
       return false;
     }
 
     state.player.gold-=cost;
-    // 同 ID 合併後才寫回背包，避免十連/100連逐抽呼叫 a8Add。
+    // 同 ID 合併後才寫回背包，十連/100連皆只提交一次背包與一次存檔。
     for(const [id,qty] of Object.entries(counts))a8Add(id,qty);
     p.progress=0;
     p.freeReady=false;
 
-    // 使用者指定：連抽獲獎資訊完全不加入戰鬥/系統日誌。
+    // 連抽獲獎資訊不加入戰鬥/系統日誌。
     save();
     renderHUDDynamic();
     return rolls;
@@ -37631,6 +37707,513 @@ const A9961_BUILD='B1.0 Alpha99.61';
   window.__A9961_TEST__={build:A9961_BUILD,ids:[...MATERIALS],audit:a9961Audit,purchaseProbe:a9961PurchaseProbe,shopUiProbe:a9961ShopUiProbe,previous:window.__A9960_TEST__||null};
 })();
 
+// ===== Alpha99.63：取消世界王抽獎；原位置改為1000連抽100金幣 =====
+// 保留十連1金幣、100連10金幣與既有潘朵拉獎池/機率。
+// 1000連採記憶體批次抽選 -> 同ID合併入背包 -> 單次save/UI更新；不寫逐抽/摘要日誌。
+// UI共用防連點鎖，避免快速連點堆疊多批抽獎。
+(()=>{
+  const A9963_BUILD='B1.0 Alpha99.63';
+  const A9963_COST_1000=100;
+  const A9963_YIELD_EVERY=250;
+  const A9963_CLICK_COOLDOWN=280;
+  let A9963_BUSY=false;
+  let A9963_LAST=null;
+  const A9963_SINGLE_BASE=a9842PandoraSingle;
+  const A9963_BOSS_BASE=a43DefeatBoss;
+
+  function a9963DisableLegacyWorldBossDraws(saveNow=false){
+    try{
+      if(!state)return false;
+      a9842Ensure();
+      const p=state?.a9842?.pandora;if(!p)return false;
+      const old=Number(p.worldBossDraws||0);
+      p.worldBossDraws=0;
+      if(old!==0&&saveNow)save();
+      return old!==0;
+    }catch(e){try{console.error('Alpha99.63 clear legacy world-boss draws',e)}catch(_e){};return false}
+  }
+
+  // 舊世界王抽獎入口完全停用；一般 gold 入口維持 Alpha99.57 的100連規則。
+  a9842PandoraSingle=function(kind='gold'){
+    if(kind==='wb'){
+      a9963DisableLegacyWorldBossDraws(true);
+      toast('世界王抽獎已取消');
+      return false;
+    }
+    return A9963_SINGLE_BASE.apply(this,arguments);
+  };
+
+  // 世界王本身照常結算；只清除舊版額外贈送的潘朵拉世界王抽獎資格。
+  a43DefeatBoss=function(){
+    const r=A9963_BOSS_BASE.apply(this,arguments);
+    a9963DisableLegacyWorldBossDraws(true);
+    return r;
+  };
+
+  const a9963Yield=()=>new Promise(resolve=>setTimeout(resolve,0));
+
+  async function a9963Pandora1000(){
+    a9842Ensure();a9963DisableLegacyWorldBossDraws(false);
+    if(Number(state?.player?.lv||0)<41){toast('潘朵拉需 Lv.41');return false}
+    if(Number(state?.player?.gold||0)<A9963_COST_1000){toast('金幣不足');return false}
+
+    // Alpha99.66：使用同一個快取抽選器；1000連不再保存1000個完整 roll 物件。
+    const rolls=new Array(1000),counts={},rarityCounts={},tmp={};
+    const t0=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+    for(let i=0;i<1000;i++){
+      const roll=a9966PandoraPickInto(tmp),id=roll.id;
+      if(!id||!DATA.items?.[id]){
+        console.error('Alpha99.66 Pandora 1000-roll incomplete at',i,id);
+        toast('1000連抽資料異常，本次未扣金幣');
+        return false;
+      }
+      rolls[i]=id;
+      counts[id]=(counts[id]||0)+1;
+      const rk=String(roll.rarity?.label||roll.rarity?.key||'其他');
+      rarityCounts[rk]=(rarityCounts[rk]||0)+1;
+      if((i+1)%A9963_YIELD_EVERY===0&&i<999)await a9963Yield();
+    }
+
+    // 1000抽全部有效後才扣款與批次入背包，避免中途異常留下半套結果。
+    state.player.gold-=A9963_COST_1000;
+    for(const [id,qty] of Object.entries(counts))a8Add(id,qty);
+    const p=state.a9842.pandora;p.progress=0;p.freeReady=false;p.worldBossDraws=0;
+    save();renderHUDDynamic();
+    const ms=((typeof performance!=='undefined'&&performance.now)?performance.now():Date.now())-t0;
+    A9963_LAST={draws:1000,cost:A9963_COST_1000,unique:Object.keys(counts).length,rarityCounts:{...rarityCounts},ms,cacheBuilds:A9966_PANDORA_PERF.poolBuilds};
+    return rolls;
+  }
+
+  function a9963LockButtons(box,on){
+    try{box?.querySelectorAll?.('[data-a9842-p100],[data-a9842-p10],[data-a9963-p1000]').forEach(b=>{b.disabled=!!on})}catch(e){}
+  }
+  async function a9963RunLocked(box,fn,onDone){
+    if(A9963_BUSY){toast('潘朵拉抽獎結算中');return false}
+    A9963_BUSY=true;a9963LockButtons(box,true);
+    let r=false;
+    try{r=await fn();if(r&&onDone)onDone(r);return r}
+    catch(e){try{console.error('Alpha99.63 Pandora UI draw',e)}catch(_e){}toast('抽獎發生錯誤');return false}
+    finally{setTimeout(()=>{A9963_BUSY=false;a9963LockButtons(document.getElementById('village-action'),false)},A9963_CLICK_COOLDOWN)}
+  }
+
+  a9842RenderPandora=function(npc){
+    const box=document.getElementById('village-action');if(!box||!state)return;
+    a9842Ensure();a9963DisableLegacyWorldBossDraws(false);
+    const lv=Number(state.player.lv||1),ok=lv>=41;
+    box.innerHTML=
+      '<div class="village-section-title">潘朵拉的黑市</div>'+ 
+      '<div class="a7-note">花金幣轉動命運的齒輪。可抽中完整 330 種獎池（含 ★傳說級）。需 Lv.41。</div>'+ 
+      '<div class="a9842-actions">'+
+        '<button class="a7-btn alt" data-a9842-p100 '+(ok?'':'disabled')+'>100連抽 10</button>'+ 
+        '<button class="a7-btn" data-a9842-p10 '+(ok?'':'disabled')+'>十連抽 1</button>'+ 
+        '<button class="a7-btn" data-a9963-p1000 '+(ok?'':'disabled')+'>1000連抽 100</button>'+ 
+        '<button class="a7-btn" data-a9842-pinfo>獎勵查看</button>'+ 
+      '</div>'+ 
+      '<div id="a9842-pandora-info" style="display:none;margin-top:8px">'+a9842PandoraInfoHtml()+'</div>';
+
+    const b100=box.querySelector('[data-a9842-p100]'),b10=box.querySelector('[data-a9842-p10]'),b1000=box.querySelector('[data-a9963-p1000]'),bi=box.querySelector('[data-a9842-pinfo]');
+    if(b100)b100.onclick=()=>a9963RunLocked(box,()=>Promise.resolve(window.__A9957_TEST__.hundred()),()=>{toast('100連抽完成，獲得 100 件');a9842RenderPandora(npc)});
+    if(b10)b10.onclick=()=>a9963RunLocked(box,()=>Promise.resolve(window.__A9957_TEST__.ten()),()=>{toast('十連抽完成，獲得 10 件');a9842RenderPandora(npc)});
+    if(b1000)b1000.onclick=()=>a9963RunLocked(box,a9963Pandora1000,()=>{toast('1000連抽完成，獲得 1000 件');a9842RenderPandora(npc)});
+    if(bi)bi.onclick=()=>{const e=box.querySelector('#a9842-pandora-info');if(e)e.style.display=e.style.display==='none'?'block':'none'};
+    if(A9963_BUSY)a9963LockButtons(box,true);
+  };
+
+  function a9963Audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      add('1000連價格100',A9963_COST_1000===100,{cost:A9963_COST_1000});
+      add('1000連分段250',A9963_YIELD_EVERY===250,{yieldEvery:A9963_YIELD_EVERY});
+      add('Alpha99.57十連/100連批次核心保留',typeof window.__A9957_TEST__?.hundred==='function'&&typeof window.__A9957_TEST__?.ten==='function');
+      add('Alpha99.62批次強化核心保留',typeof window.__A9962_BATCH_CORE__?.run==='function');
+    }catch(e){add('Alpha99.63 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9963_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+
+  async function a9963Probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    const snap=state?JSON.parse(JSON.stringify(state)):null;
+    let madeBox=false,oldSave=save,oldHud=renderHUDDynamic,saveN=0,hudN=0;
+    try{
+      if(typeof a76TestReset==='function')a76TestReset('elf',50);
+      a9842Ensure();state.player.lv=50;state.player.gold=100;state.a9842.pandora.worldBossDraws=7;
+      save=function(){saveN++;return oldSave.apply(this,arguments)};
+      renderHUDDynamic=function(){hudN++;return oldHud.apply(this,arguments)};
+      try{saveAcc=0}catch(e){}
+      const inv0=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),log0=logLines.length;
+      const r=await a9963Pandora1000();
+      const inv1=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),log1=logLines.length;
+      add('1000連=100金幣/1000件/無日誌',Array.isArray(r)&&r.length===1000&&state.player.gold===0&&inv1-inv0===1000&&log1===log0,{gold:state.player.gold,itemDelta:inv1-inv0,logDelta:log1-log0});
+      const explicitSaves=(String(a9963Pandora1000).match(/\bsave\(\)/g)||[]).length;add('1000連核心僅1個顯式save/無逐抽save',explicitSaves===1&&saveN<=2&&hudN>=1,{explicitSaves,observedSaveN:saveN,hudN,note:'重複probe時既有背景autosave可能剛好插入1次；1000連核心本身只有1個save()'});
+      add('舊世界王抽獎次數清零',state.a9842.pandora.worldBossDraws===0,{worldBossDraws:state.a9842.pandora.worldBossDraws});
+
+      state.player.gold=99;const inv2=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0);const no=await a9963Pandora1000();const inv3=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0);
+      add('99金幣不能1000連',no===false&&state.player.gold===99&&inv3===inv2,{gold:state.player.gold,itemDelta:inv3-inv2});
+
+      let box=document.getElementById('village-action');if(!box){box=document.createElement('div');box.id='village-action';document.body.appendChild(box);madeBox=true}
+      state.player.gold=100;state.a9842.pandora.worldBossDraws=3;a9842RenderPandora({id:'npc_pandora',n:'潘朵拉'});
+      const txt=box.textContent||'';
+      add('UI移除世界王抽獎/改1000連100',!txt.includes('世界王抽獎')&&txt.includes('1000連抽 100')&&txt.includes('100連抽 10')&&txt.includes('十連抽 1'),{text:txt.slice(0,260)});
+      add('舊世界王按鈕消失/1000按鈕存在',!box.querySelector('[data-a9842-pwb]')&&!!box.querySelector('[data-a9963-p1000]'));
+      add('渲染清除舊世界王次數',state.a9842.pandora.worldBossDraws===0,{worldBossDraws:state.a9842.pandora.worldBossDraws});
+
+      // 先重現使用者原本容易出問題的100連快速連點：10次click只能執行1批100連。
+      state.player.gold=100;const inv100a=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),g100a=state.player.gold;
+      a9842RenderPandora({id:'npc_pandora',n:'潘朵拉'});const b100fast=box.querySelector('[data-a9842-p100]');for(let i=0;i<10;i++)b100fast?.click();
+      let guard100=100;while(A9963_BUSY&&guard100-->0)await new Promise(r=>setTimeout(r,10));
+      const inv100b=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),spent100=g100a-state.player.gold;
+      add('100連UI快速10連點只執行1批',!!b100fast&&spent100===10&&inv100b-inv100a===100,{button:!!b100fast,goldSpent:spent100,itemDelta:inv100b-inv100a});
+      await new Promise(r=>setTimeout(r,A9963_CLICK_COOLDOWN+30));
+
+      state.player.gold=1000;const inv4=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),g4=state.player.gold;
+      a9842RenderPandora({id:'npc_pandora',n:'潘朵拉'});const b=box.querySelector('[data-a9963-p1000]');for(let i=0;i<10;i++)b?.click();
+      let guard=100;while(A9963_BUSY&&guard-->0)await new Promise(r=>setTimeout(r,10));
+      const inv5=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),spent=g4-state.player.gold;
+      add('1000連UI快速10連點只執行1批',!!b&&spent===100&&inv5-inv4===1000,{button:!!b,goldSpent:spent,itemDelta:inv5-inv4});
+      await new Promise(r=>setTimeout(r,A9963_CLICK_COOLDOWN+30));
+
+      state.a9842.pandora.worldBossDraws=5;const wb=a9842PandoraSingle('wb');
+      add('隱藏世界王抽獎入口也停用',wb===false&&state.a9842.pandora.worldBossDraws===0,{result:wb,worldBossDraws:state.a9842.pandora.worldBossDraws});
+
+      // 世界王本體仍照常結算勝場，只是不再留下潘朵拉世界王抽獎資格。
+      if(typeof a9844Ensure==='function'&&typeof a9844ResetBossContribution==='function'){
+        a76TestReset('knight',80);a9842Ensure();a9844Ensure();state.player.lv=80;state.player.atk=500;state.boss.id='wb_sema';state.boss.active=true;state.boss.fighting=true;state.boss.hp=1;state.a9842.pandora.worldBossDraws=0;a9844ResetBossContribution('wb_sema');state.a9844.worldBoss.fight.damage=101;
+        const wins0=Number(state.bossWins||0);a43DefeatBoss();
+        add('世界王勝場正常/潘朵拉世界王抽獎不再發放',Number(state.bossWins||0)===wins0+1&&Number(state.a9842.pandora.worldBossDraws||0)===0,{winsDelta:Number(state.bossWins||0)-wins0,worldBossDraws:Number(state.a9842.pandora.worldBossDraws||0)});
+      }else add('世界王勝場正常/潘朵拉世界王抽獎不再發放',false,{error:'world boss helper missing'});
+
+      const p60=window.__A9960_TEST__?.audit?.();add('Alpha99.60自動通道回歸',p60?.ok===true,p60||{});
+      const p61=window.__A9961_TEST__?.audit?.();add('Alpha99.61雜貨商回歸',p61?.ok===true,p61||{});
+    }catch(e){add('Alpha99.63 probe exception',false,{error:String(e?.stack||e)})}
+    finally{
+      save=oldSave;renderHUDDynamic=oldHud;A9963_BUSY=false;
+      try{if(madeBox)document.getElementById('village-action')?.remove()}catch(e){}
+      try{if(snap){state=snap;derive();render()}}catch(e){}
+    }
+    return{ok:rows.every(x=>x.ok),build:A9963_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows,last:A9963_LAST};
+  }
+
+  a9963DisableLegacyWorldBossDraws(false);
+  window.__A9963_TEST__={build:A9963_BUILD,audit:a9963Audit,probe:a9963Probe,pandora1000:a9963Pandora1000,disableLegacyWorldBossDraws:a9963DisableLegacyWorldBossDraws,get busy(){return A9963_BUSY},get last(){return A9963_LAST},cost1000:A9963_COST_1000,yieldEvery:A9963_YIELD_EVERY,previous:window.__A9962_TEST__||null};
+})();
+
+// ===== Alpha99.64：手機前景主迴圈降溫 =====
+// 不改 tick/attack/技能CD/掉落公式；只降低手機前景執行頻率、週期自動存檔與重複DOM工作。
+const A9964_BUILD='B1.0 Alpha99.64';
+(()=>{
+  const S={attempt:0,logicRun:0,logicSkip:0,combatSample:0,lastLogic:0,lastSaveArm:0,periodicSaveArm:0,testMobile:null};
+  function mobile(){
+    if(S.testMobile!==null)return !!S.testMobile;
+    try{const x=window.__A9948_TEST__?.stats?.();if(x&&typeof x.mobile==='boolean')return !!x.mobile}catch(e){}
+    const ua=String(navigator?.userAgent||'');if(/Android|iPhone|iPad|iPod|Mobile/i.test(ua))return true;
+    try{return !!matchMedia?.('(pointer: coarse)')?.matches&&Math.min(Number(innerWidth||9999),Number(innerHeight||9999))<=1000}catch(e){return false}
+  }
+  function combat(){return !!(state&&(state.running||state?.boss?.fighting))}
+  function interval(){return combat()?33:60}
+  function armPeriodicSave(now){
+    if(!S.lastSaveArm)S.lastSaveArm=now;
+    try{
+      if(now-S.lastSaveArm>=8000){saveAcc=Math.max(Number(saveAcc||0),3.05);S.lastSaveArm=now;S.periodicSaveArm++}
+      else saveAcc=0;
+    }catch(e){}
+  }
+  const A9964_LOOP_BASE=loop;
+  loop=function(now){
+    S.attempt++;
+    // Alpha99.65 之後若由新排程器接管，99.64 只保留 DOM 快取/版本/QA，不再疊第二層 scheduler gate。
+    if(window.__A9965_SCHEDULER_ACTIVE__===true){S.logicRun++;return A9964_LOOP_BASE(now)}
+    if(!mobile()||document.hidden){S.logicRun++;return A9964_LOOP_BASE(now)}
+    const gap=interval(),elapsed=S.lastLogic?now-S.lastLogic:Infinity;
+    if(elapsed<gap){
+      S.logicSkip++;
+      // 不跑 tick，只讓既有 Alpha99.48 顯示節流器保持正確螢幕採樣節奏。
+      if(combat())try{S.combatSample++;renderBattleDynamic();renderHUDDynamic()}catch(e){}
+      raf=requestAnimationFrame(loop);return;
+    }
+    S.lastLogic=now;armPeriodicSave(now);S.logicRun++;return A9964_LOOP_BASE(now);
+  };
+  document.addEventListener('visibilitychange',()=>{S.lastLogic=0;S.lastSaveArm=performance.now()},{passive:true});
+
+  function applyVersion(){
+    window.__BUILD_VERSION__=A9964_BUILD;
+    try{document.title='樓梯口天堂 · '+A9964_BUILD}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=A9964_BUILD}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.64：手機前景戰鬥邏輯約60→30Hz、非戰鬥約15Hz；週期自動存檔約3→8秒，並快取HUD/怪物DOM降低重複查找與寫入。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.64｜手機前景主迴圈降溫｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=A9964_BUILD+' · 手機前景降溫'}catch(e){}
+    try{if(state){state.saveMeta=state.saveMeta||{};state.saveMeta.mobileForegroundCool='alpha99.64'}}catch(e){}
+  }
+  function stats(){return{build:A9964_BUILD,mobile:mobile(),combat:combat(),targetLogicHz:combat()?30:15,autosaveSeconds:8,attempt:S.attempt,logicRun:S.logicRun,logicSkip:S.logicSkip,combatSample:S.combatSample,periodicSaveArm:S.periodicSaveArm,lastLogic:S.lastLogic,lastSaveArm:S.lastSaveArm,dom:{...A9964_BASE_DOM_STATS}}}
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      add('版本核心',A9964_BUILD==='B1.0 Alpha99.64');
+      add('tick核心仍由99.48判定未改寫',window.__A9948_TEST__?.audit?.().ok===true,window.__A9948_TEST__?.audit?.());
+      add('99.63潘朵拉核心保留',window.__A9963_TEST__?.audit?.().ok===true,window.__A9963_TEST__?.audit?.());
+      add('DOM快取核心存在',typeof a9964BaseHudDom==='function'&&typeof a9964BaseBattleDom==='function');
+      add('手機週期存檔目標8秒',stats().autosaveSeconds===8,{seconds:stats().autosaveSeconds});
+    }catch(e){add('Alpha99.64 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9964_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  async function probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail}),old=S.testMobile,snap=state?JSON.parse(JSON.stringify(state)):null;
+    try{
+      S.testMobile=true;S.attempt=S.logicRun=S.logicSkip=S.combatSample=S.periodicSaveArm=0;S.lastLogic=0;S.lastSaveArm=0;
+      a76TestReset('elf',60);state.inVillage=false;state.mapId='training';state.running=true;derive();spawnAll();render();
+      A9964_BASE_HUD_CACHE=null;A9964_BASE_BATTLE_CACHE=null;const d0={...A9964_BASE_DOM_STATS};renderHUDDynamic();renderHUDDynamic();renderBattleDynamic();renderBattleDynamic();const d1={...A9964_BASE_DOM_STATS};
+      add('HUD/戰鬥DOM快取重複呼叫不重建',d1.hudCacheBuild-d0.hudCacheBuild===1&&d1.battleCacheBuild-d0.battleCacheBuild===1,{before:d0,after:d1});
+      const t0=performance.now();S.lastSaveArm=t0;try{saveAcc=2.9}catch(e){}armPeriodicSave(t0+3000);const s3=Number(saveAcc||0);armPeriodicSave(t0+8100);const s8=Number(saveAcc||0);
+      add('手機週期存檔3秒不觸發/8秒才武裝',s3===0&&s8>=3,{at3s:s3,at8s:s8,arms:S.periodicSaveArm});
+      add('戰鬥目標約30Hz',interval()===33,{combatMs:interval()});state.running=false;add('非戰鬥目標約15Hz',interval()===60,{idleMs:interval()});
+      const p63=await window.__A9963_TEST__?.probe?.();add('Alpha99.63潘朵拉1000連回歸',p63?.ok===true,{passed:p63?.passed,total:p63?.total});
+      const p62=await window.__A9962_BATCH_CORE__?.probe?.();add('Alpha99.62整組強化回歸',p62?.ok===true,{passed:p62?.passed,total:p62?.total});
+      const p60=await window.__A9960_TEST__?.probe?.();add('Alpha99.60自動通道回歸',p60?.ok===true,{passed:p60?.passed,total:p60?.total});
+    }catch(e){add('Alpha99.64 probe exception',false,{error:String(e?.stack||e)})}
+    finally{S.testMobile=old;S.lastLogic=0;S.lastSaveArm=performance.now();try{if(snap){state=snap;derive();render()}else state=null}catch(e){}applyVersion()}
+    return{ok:rows.every(x=>x.ok),build:A9964_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows,stats:stats()};
+  }
+
+  // 完整畫面重建時只清快取，不改任何遊戲狀態。
+  try{if(typeof render==='function'){const b=render;render=function(){A9964_BASE_HUD_CACHE=null;A9964_BASE_BATTLE_CACHE=null;const r=b.apply(this,arguments);applyVersion();return r}}}catch(e){}
+  applyVersion();
+
+  window.__A9964_TEST__={build:A9964_BUILD,audit,probe,stats,applyVersion,setTestMobile:(v)=>{S.testMobile=v==null?null:!!v;return stats()},setTestRunning:(v)=>{if(state){state.running=!!v;if(!v&&state.boss)state.boss.fighting=false}S.lastLogic=0;return stats()},resetCounters:()=>{S.attempt=S.logicRun=S.logicSkip=S.combatSample=S.periodicSaveArm=0;S.lastLogic=0;S.lastSaveArm=performance.now();return stats()},previous:window.__A9963_TEST__||null};
+})();
+
+// ===== Alpha99.65：手機深度省電 =====
+// 目標：玩法/數值完全不改；只減少前景排程喚醒、重複 Audio 物件、以及掛機待機動畫圖片換幀。
+const A9965_BUILD='B1.0 Alpha99.65';
+window.__A9965_SCHEDULER_ACTIVE__=true;
+(()=>{
+  const Q={entry:0,baseCall:0,timerArm:0,timerFire:0,cancelBaseRaf:0,timer:0,testMobile:null,lastSaveArm:0,periodicSaveArm:0,
+    idleMobFrameCalls:0,idlePlayerFrameCalls:0,sfxPoolCreate:0,sfxPoolReuse:0,sfxPoolEvict:0};
+  const SFX_POOL=new Map(),SFX_POOL_MAX_KEYS=16,SFX_VOICES=2;
+  function mobile(){
+    if(Q.testMobile!==null)return !!Q.testMobile;
+    try{const x=window.__A9948_TEST__?.stats?.();if(x&&typeof x.mobile==='boolean')return !!x.mobile}catch(e){}
+    const ua=String(navigator?.userAgent||'');if(/Android|iPhone|iPad|iPod|Mobile/i.test(ua))return true;
+    try{return !!matchMedia?.('(pointer: coarse)')?.matches&&Math.min(Number(innerWidth||9999),Number(innerHeight||9999))<=1000}catch(e){return false}
+  }
+  function combat(){return !!(state&&(state.running||state?.boss?.fighting))}
+  function targetMs(){return combat()?33:100} // 約30Hz戰鬥；非戰鬥約10Hz。
+  function clearTimer(){if(Q.timer){clearTimeout(Q.timer);Q.timer=0}}
+  function armTimer(delayMs=targetMs()){
+    clearTimer();if(!mobile()||document.hidden)return;
+    const wait=Math.max(0,Number(delayMs)||0);Q.timerArm++;Q.timer=setTimeout(()=>{Q.timer=0;if(document.hidden||!mobile())return;Q.timerFire++;loop(performance.now())},wait);
+  }
+
+  // 1) 真正低頻主排程：99.64 是每個 RAF 都進 wrapper 再丟棄一半；99.65 在手機直接用低頻 timer 驅動。
+  //    底層 tick / attack / 技能 / 掉落邏輯仍全部走 99.64 之前的既有鏈，不改公式。
+  const A9965_LOOP_BASE=loop;
+  function armPeriodicSave(now){
+    if(!Q.lastSaveArm)Q.lastSaveArm=now;
+    try{if(now-Q.lastSaveArm>=8000){saveAcc=Math.max(Number(saveAcc||0),3.05);Q.lastSaveArm=now;Q.periodicSaveArm++}else saveAcc=0}catch(e){}
+  }
+  loop=function(now){
+    Q.entry++;
+    if(!mobile()){clearTimer();Q.baseCall++;return A9965_LOOP_BASE(now)}
+    if(document.hidden){clearTimer();try{raf=0}catch(e){};return}
+    clearTimer();Q.baseCall++;const workStart=performance.now();armPeriodicSave(now);
+    // 99.65 自己掌握真正低頻排程；99.64 看到接管旗標後會直接放行，不再疊第二層 gate。
+    // 99.64 的 8 秒存檔規則已由上面的 armPeriodicSave 等價接手；DOM 快取等其餘 99.64 功能仍保留。
+    const r=A9965_LOOP_BASE(now);
+    // base 會預約下一個 RAF；手機版取消它，改由較低頻 timer 叫下一輪。
+    try{if(raf){cancelAnimationFrame(raf);raf=0;Q.cancelBaseRaf++}}catch(e){}
+    // 把本輪 tick/DOM 已花掉的時間扣掉，避免「33ms timer + 工作時間」把攻擊節奏額外拖慢。
+    armTimer(Math.max(0,targetMs()-(performance.now()-workStart)));return r;
+  };
+  document.addEventListener('visibilitychange',()=>{clearTimer();if(document.visibilityState==='visible'&&mobile()&&!Q.timer){try{if(raf){cancelAnimationFrame(raf);raf=0}}catch(e){};armTimer()}},{passive:true});
+  window.addEventListener('pagehide',()=>{clearTimer()},{passive:true});
+  window.addEventListener('pageshow',()=>{if(mobile()&&!document.hidden){clearTimer();try{if(raf){cancelAnimationFrame(raf);raf=0}}catch(e){};armTimer()}},{passive:true});
+
+  // 2) 掛機中的 idle 動畫只換約 2 FPS；攻擊/受傷/死亡動畫維持原本速度。
+  //    只減少 img.src 變更與圖片合成，不改 x.frame / pAnim 的遊戲狀態推進。
+  const A9965_MOB_FRAME_BASE=mobFrameUrl,A9965_PLAYER_FRAME_BASE=playerFrameUrl;
+  mobFrameUrl=function(x){
+    if(!mobile()||!combat()||!x||x.clip!=='idle')return A9965_MOB_FRAME_BASE.apply(this,arguments);
+    const m=mobData(x),a=animMeta(m?.n);if(!a?.i)return A9965_MOB_FRAME_BASE.apply(this,arguments);
+    const old=x.frame;try{x.frame=Math.floor(performance.now()/500)%Math.max(1,Number(a.i)||1);Q.idleMobFrameCalls++;return A9965_MOB_FRAME_BASE(x)}finally{x.frame=old}
+  };
+  playerFrameUrl=function(){
+    if(!mobile()||!combat()||pAnim?.clip!=='idle')return A9965_PLAYER_FRAME_BASE.apply(this,arguments);
+    const set=playerSet(),cnt=Math.max(1,Number(set?.COUNT?.idle)||1),old=pAnim.frame;
+    try{pAnim.frame=Math.floor(performance.now()/500)%cnt;Q.idlePlayerFrameCalls++;return A9965_PLAYER_FRAME_BASE()}finally{pAnim.frame=old}
+  };
+
+  // 3) 手機戰鬥 SFX：已探測成功的音檔改成小型 Audio 物件池；不再每次出手都 new Audio。
+  //    第一次探測素材仍沿用既有流程；桌面版完全維持原行為。
+  const A9965_SFX_BASE=a5TrySfx;
+  function evictIfNeeded(){
+    if(SFX_POOL.size<SFX_POOL_MAX_KEYS)return;
+    let oldKey=null,oldAt=Infinity;for(const [k,v] of SFX_POOL){if(Number(v.last||0)<oldAt){oldAt=Number(v.last||0);oldKey=k}}
+    if(oldKey!=null){const rec=SFX_POOL.get(oldKey);for(const a of rec?.voices||[])try{a.pause();a.removeAttribute('src');a.load()}catch(e){}SFX_POOL.delete(oldKey);Q.sfxPoolEvict++}
+  }
+  function ensurePool(path){
+    let rec=SFX_POOL.get(path);if(rec){rec.last=performance.now();return rec}
+    evictIfNeeded();const voices=[];for(let i=0;i<SFX_VOICES;i++){const a=new Audio(path);a.preload='auto';voices.push(a)}
+    rec={voices,cursor:0,last:performance.now()};SFX_POOL.set(path,rec);Q.sfxPoolCreate+=voices.length;return rec;
+  }
+  function poolPlay(path,vol,fallbackKind){
+    try{
+      const rec=ensurePool(path),free=rec.voices.find(a=>a.paused||a.ended),a=free||rec.voices[rec.cursor++%rec.voices.length];
+      rec.last=performance.now();try{a.pause()}catch(e){};try{a.currentTime=0}catch(e){};a.volume=Math.min(1,Math.max(0,Number(vol)||0));Q.sfxPoolReuse++;
+      const p=a.play();if(p?.catch)p.catch(()=>a5SynthSfx(fallbackKind));return true;
+    }catch(e){try{a5SynthSfx(fallbackKind)}catch(_e){}return false}
+  }
+  a5TrySfx=function(stem,vol=.45,fallbackKind='sword',throttle=65){
+    if(!mobile())return A9965_SFX_BASE.apply(this,arguments);
+    if(!audioPref.sfx||!a4AudioUnlocked)return false;
+    const key='sfx:'+stem,chosen=a5MediaChoice.get(key);
+    if(!chosen)return A9965_SFX_BASE.apply(this,arguments); // 首次素材探測沿用既有邏輯。
+    a5Throttled(key,throttle,()=>poolPlay(chosen,Math.min(1,vol*(Number(a5Pref.sfxVol)||50)/50),fallbackKind));return true;
+  };
+
+  function applyVersion(){
+    window.__BUILD_VERSION__=A9965_BUILD;
+    try{document.title='樓梯口天堂 · '+A9965_BUILD}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=A9965_BUILD}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.65：手機主迴圈改真正低頻排程（戰鬥約30Hz/待機約10Hz），掛機idle動畫約2FPS，戰鬥SFX重複使用Audio物件池。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.65｜手機深度省電｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=A9965_BUILD+' · 手機深度省電'}catch(e){}
+    try{if(state){state.saveMeta=state.saveMeta||{};state.saveMeta.mobileDeepPower='alpha99.65'}}catch(e){}
+  }
+  function stats(){return{build:A9965_BUILD,mobile:mobile(),combat:combat(),schedulerTargetMs:targetMs(),schedulerTargetHz:1000/targetMs(),idleVisualFps:2,autosaveSeconds:8,sfxPoolKeys:SFX_POOL.size,sfxPoolVoices:[...SFX_POOL.values()].reduce((n,r)=>n+(r.voices?.length||0),0),...Q}}
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      add('99.64前景降溫核心保留',window.__A9964_TEST__?.audit?.().ok===true,window.__A9964_TEST__?.audit?.());
+      add('離線100ms tick不變',A45_OFFLINE_TICK_MS===100,{tickMs:A45_OFFLINE_TICK_MS});
+      add('離線24h上限不變',A46_OFFLINE_CAP_MS===86400000,{capMs:A46_OFFLINE_CAP_MS});
+      add('手機SFX物件池=2聲道/最多16組',SFX_VOICES===2&&SFX_POOL_MAX_KEYS===16,{voices:SFX_VOICES,maxKeys:SFX_POOL_MAX_KEYS});
+      add('idle視覺目標2FPS',stats().idleVisualFps===2,{fps:stats().idleVisualFps});
+      add('潘朵拉1000連核心保留',window.__A9963_TEST__?.audit?.().ok===true,window.__A9963_TEST__?.audit?.());
+    }catch(e){add('Alpha99.65 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9965_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  async function probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail}),old=Q.testMobile,snap=state?JSON.parse(JSON.stringify(state)):null;
+    try{
+      Q.testMobile=true;
+      a76TestReset('elf',60);state.inVillage=false;state.mapId='training';state.running=true;derive();spawnAll();render();
+      add('戰鬥排程目標約30Hz',targetMs()===33,{ms:targetMs(),hz:1000/targetMs()});state.running=false;add('非戰鬥排程目標10Hz',targetMs()===100,{ms:targetMs(),hz:1000/targetMs()});
+      // Audio pool 重取同一路徑不得持續增加 Audio 數量。
+      const fake='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+      const k0=SFX_POOL.size,v0=[...SFX_POOL.values()].reduce((n,r)=>n+(r.voices?.length||0),0);ensurePool(fake);ensurePool(fake);const k1=SFX_POOL.size,v1=[...SFX_POOL.values()].reduce((n,r)=>n+(r.voices?.length||0),0);
+      add('SFX同一路徑重用固定2個Audio',k1-k0===1&&v1-v0===2,{keysDelta:k1-k0,voicesDelta:v1-v0});
+      const t0=performance.now();Q.lastSaveArm=t0;try{saveAcc=2.9}catch(e){}armPeriodicSave(t0+3000);const sv3=Number(saveAcc||0);armPeriodicSave(t0+8100);const sv8=Number(saveAcc||0);add('99.65手機週期存檔仍為8秒',sv3===0&&sv8>=3,{at3s:sv3,at8s:sv8,arms:Q.periodicSaveArm});
+      const p64=await window.__A9964_TEST__?.probe?.();add('Alpha99.64完整回歸',p64?.ok===true,{passed:p64?.passed,total:p64?.total});
+      const p58=window.__A9958_TEST__?.audit?.();add('Alpha99.58離線秒結算核心回歸',p58?.ok===true,p58||{});
+    }catch(e){add('Alpha99.65 probe exception',false,{error:String(e?.stack||e)})}
+    finally{Q.testMobile=old;clearTimer();Q.lastSaveArm=performance.now();try{if(snap){state=snap;derive();render()}else state=null}catch(e){}applyVersion();if(mobile()&&!document.hidden)armTimer()}
+    return{ok:rows.every(x=>x.ok),build:A9965_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows,stats:stats()};
+  }
+
+  try{if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);applyVersion();return r}}}catch(e){}
+  applyVersion();
+  window.__A9965_TEST__={build:A9965_BUILD,audit,probe,stats,applyVersion,setTestMobile:(v)=>{Q.testMobile=v==null?null:!!v;return stats()},resetCounters:()=>{Q.entry=Q.baseCall=Q.timerArm=Q.timerFire=Q.cancelBaseRaf=Q.periodicSaveArm=Q.idleMobFrameCalls=Q.idlePlayerFrameCalls=Q.sfxPoolCreate=Q.sfxPoolReuse=Q.sfxPoolEvict=0;Q.lastSaveArm=performance.now();return stats()},clearTimer,previous:window.__A9964_TEST__||null};
+})();
+
+// ===== Alpha99.66：潘朵拉快取批次核心 =====
+const A9966_BUILD='B1.0 Alpha99.66';
+(()=>{
+  function applyVersion(){
+    window.__BUILD_VERSION__=A9966_BUILD;
+    try{document.title='樓梯口天堂 · '+A9966_BUILD}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=A9966_BUILD}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.66：潘朵拉330種獎池改為一次快取；十連/100連/1000連共用輕量批次抽選，價格與機率不變。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.66｜潘朵拉快取批次核心｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=A9966_BUILD+' · 潘朵拉快取批次'}catch(e){}
+    try{if(state){state.saveMeta=state.saveMeta||{};state.saveMeta.pandoraBatchCache='alpha99.66'}}catch(e){}
+  }
+  function stats(){return{build:A9966_BUILD,poolBuilds:A9966_PANDORA_PERF.poolBuilds,picks:A9966_PANDORA_PERF.picks,totalWeight:A9966_PANDORA_TOTAL,poolSame:a9842Pool()===a9842Pool(),pool:a9842PoolAudit()}}
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const p=a9842PoolAudit();
+      add('潘朵拉獎池仍330種且5階數量不變',p.ok&&p.total===330,p);
+      add('獎池物件重複呼叫使用同一快取',a9842Pool()===a9842Pool(),{poolBuilds:A9966_PANDORA_PERF.poolBuilds});
+      add('稀有度總權重不變',Math.abs(A9966_PANDORA_TOTAL-A9842_RARITIES.reduce((s,r)=>s+r.weight,0))<1e-9,{total:A9966_PANDORA_TOTAL});
+      add('99.63價格/防連點核心保留',window.__A9963_TEST__?.audit?.().ok===true,window.__A9963_TEST__?.audit?.());
+      add('99.65手機深度省電核心保留',window.__A9965_TEST__?.audit?.().ok===true,window.__A9965_TEST__?.audit?.());
+    }catch(e){add('Alpha99.66 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9966_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  async function probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    const snap=state?JSON.parse(JSON.stringify(state)):null,oldSave=save,oldHud=renderHUDDynamic;let saveN=0,hudN=0;
+    try{
+      if(typeof a76TestReset==='function')a76TestReset('elf',50);a9842Ensure();state.player.lv=50;
+      save=function(){saveN++;return oldSave.apply(this,arguments)};renderHUDDynamic=function(){hudN++;return oldHud.apply(this,arguments)};
+      const pool0=a9842Pool(),build0=A9966_PANDORA_PERF.poolBuilds,pick0=A9966_PANDORA_PERF.picks;
+      state.player.gold=1;let inv0=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0),log0=logLines.length,sv0=saveN;const r10=window.__A9957_TEST__.ten();let inv1=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0);
+      add('十連=1金幣/10件/1次save/無日誌',Array.isArray(r10)&&r10.length===10&&state.player.gold===0&&inv1-inv0===10&&saveN-sv0===1&&logLines.length===log0,{itemDelta:inv1-inv0,saveDelta:saveN-sv0});
+      state.player.gold=10;inv0=inv1;log0=logLines.length;sv0=saveN;const r100=window.__A9957_TEST__.hundred();inv1=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0);
+      add('100連=10金幣/100件/1次save/無日誌',Array.isArray(r100)&&r100.length===100&&state.player.gold===0&&inv1-inv0===100&&saveN-sv0===1&&logLines.length===log0,{itemDelta:inv1-inv0,saveDelta:saveN-sv0});
+      state.player.gold=100;inv0=inv1;log0=logLines.length;sv0=saveN;const r1000=await window.__A9963_TEST__.pandora1000();inv1=Object.values(state.inventory||{}).reduce((a,b)=>a+Number(b||0),0);
+      add('1000連=100金幣/1000件/1次save/無日誌',Array.isArray(r1000)&&r1000.length===1000&&state.player.gold===0&&inv1-inv0===1000&&saveN-sv0===1&&logLines.length===log0,{itemDelta:inv1-inv0,saveDelta:saveN-sv0});
+      add('1110抽期間獎池沒有重建',A9966_PANDORA_PERF.poolBuilds===build0&&a9842Pool()===pool0,{poolBuildsBefore:build0,poolBuildsAfter:A9966_PANDORA_PERF.poolBuilds});
+      add('1110抽確實走共用快取pick核心',A9966_PANDORA_PERF.picks-pick0===1110,{pickDelta:A9966_PANDORA_PERF.picks-pick0});
+      const p63=await window.__A9963_TEST__?.probe?.();add('Alpha99.63完整潘朵拉回歸',p63?.ok===true,{passed:p63?.passed,total:p63?.total});
+      const p65=await window.__A9965_TEST__?.probe?.();add('Alpha99.65手機省電回歸',p65?.ok===true,{passed:p65?.passed,total:p65?.total});
+    }catch(e){add('Alpha99.66 probe exception',false,{error:String(e?.stack||e)})}
+    finally{save=oldSave;renderHUDDynamic=oldHud;try{if(snap){state=snap;derive();render()}else state=null}catch(e){}applyVersion()}
+    return{ok:rows.every(x=>x.ok),build:A9966_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows,stats:stats()};
+  }
+  applyVersion();
+  try{if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);applyVersion();return r}}}catch(e){}
+  window.__A9966_TEST__={build:A9966_BUILD,audit,probe,stats,applyVersion,previous:window.__A9965_TEST__||null};
+})();
+
+// ===== Alpha99.67：整組批量強化第二階段手機優化 =====
+const A9967_BUILD='B1.0 Alpha99.67';
+(()=>{
+  function applyVersion(){
+    window.__BUILD_VERSION__=A9967_BUILD;
+    try{document.title='樓梯口天堂 · '+A9967_BUILD}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=A9967_BUILD}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.67：整組+1／安定／+9改用輕量狀態陣列、強化機率快取與手機6ms切片；機率、RNG順序、卷軸輪流分配不變。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.67｜整組批量強化第二階段手機優化｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=A9967_BUILD+' · 整組強化低GC'}catch(e){}
+    try{if(state){state.saveMeta=state.saveMeta||{};state.saveMeta.batchEnhanceCompact='alpha99.67'}}catch(e){}
+  }
+  function stats(){return{build:A9967_BUILD,engine:window.__A9962_BATCH_CORE__?.engine,yieldEvery:window.__A9962_BATCH_CORE__?.yieldEvery,sliceMs:window.__A9962_BATCH_CORE__?.sliceMs,perf:window.__A9962_BATCH_CORE__?.perf?.()||null}}
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const c=window.__A9962_BATCH_CORE__;
+      add('整組強化已切換99.67輕量核心',c?.engine==='alpha99.67-compact',{engine:c?.engine});
+      add('舊256次yield安全上限保留',c?.yieldEvery===256,{yieldEvery:c?.yieldEvery});
+      add('手機時間切片=6ms',c?.sliceMs===6,{sliceMs:c?.sliceMs});
+      add('99.66潘朵拉快取核心保留',window.__A9966_TEST__?.audit?.().ok===true,window.__A9966_TEST__?.audit?.());
+      add('99.65手機省電核心保留',window.__A9965_TEST__?.audit?.().ok===true,window.__A9965_TEST__?.audit?.());
+    }catch(e){add('Alpha99.67 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9967_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  async function probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    const snap=state?JSON.parse(JSON.stringify(state)):null,oldRnd=Math.random,oldSave=save,oldRD=renderDrawers,oldRender=render,oldToast=toast;
+    try{
+      // 既有 8 項正式回歸必須全部仍過。
+      const old=await window.__A9962_BATCH_CORE__?.probe?.();add('Alpha99.62整組強化完整回歸',old?.ok===true,{passed:old?.passed,total:old?.total});
+      // 1000 件 +0→+6：6000 次獨立 RNG，但 profile 只應按等級建立 6 份，不再每件重算。
+      a76TestReset('elf',60);state.inventory={clk_elf:1000,scroll_armor:7000};state.gearInventoryMeta={};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();
+      let saveN=0,drawN=0;save=()=>{saveN++;return true};renderDrawers=()=>{drawN++;return true};render=()=>true;toast=()=>{};Math.random=()=>0;
+      const v=window.__A9931_TEST__?.variants?.().find(x=>x.id==='clk_elf'&&x.kind==='plain'),g=window.__A9962_BATCH_CORE__.current(v);
+      const oneTemplate=!!g&&g.count===1000&&g.copies.length===1000&&g.copies.every(x=>x===g.template);
+      const ok=await window.__A9962_BATCH_CORE__.run(v,'safe'),last=window.__A9962_LAST_BATCH__,vs=(window.__A9931_TEST__?.variants?.()||[]).filter(x=>x.id==='clk_elf');
+      add('1000件共用單一暫存metadata模板',oneTemplate,{count:g?.count});
+      add('1000件+0→+6仍6000次判定/只6次profile計算',ok&&last?.attempts===6000&&last?.profileBuilds===6,{last});
+      add('1000件批次仍只save/重畫各1次',saveN===1&&drawN===1,{saveN,drawN});
+      add('1000件結果仍全部+6',vs.length===1&&Number(vs[0]?.meta?.en||0)===6&&Number(vs[0]?.count||0)===1000,{variants:vs.map(x=>({en:Number(x.meta?.en||0),count:x.count}))});
+      const p66=window.__A9966_TEST__?.audit?.();add('Alpha99.66回歸',p66?.ok===true,p66||{});
+    }catch(e){add('Alpha99.67 probe exception',false,{error:String(e?.stack||e)})}
+    finally{Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;try{if(snap){state=snap;derive();render()}else state=null}catch(e){}applyVersion()}
+    return{ok:rows.every(x=>x.ok),build:A9967_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows,stats:stats()};
+  }
+  applyVersion();
+  try{if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);applyVersion();return r}}}catch(e){}
+  window.__A9967_TEST__={build:A9967_BUILD,audit,probe,stats,applyVersion,previous:window.__A9966_TEST__||null};
+})();
 
 
 })();
@@ -38054,6 +38637,87 @@ const A9961_BUILD='B1.0 Alpha99.61';
     if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
   }catch(e){}
   window.__A9962_TEST__={build:B,audit,core:window.__A9962_BATCH_CORE__,previous:window.__A9961_TEST__||null};
+})();
+</script>
+
+
+<script id="a9963-final-version">
+(()=>{
+  const B='B1.0 Alpha99.63';
+  function apply(){
+    window.__BUILD_VERSION__=B;
+    try{document.title='樓梯口天堂 · '+B}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=B}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.63：取消潘朵拉世界王抽獎，原按鈕位置改為1000連抽100金幣；1000抽批次結算並加入防連點。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.63｜潘朵拉1000連抽手機優化｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=B+' · 潘朵拉1000連抽'}catch(e){}
+  }
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+  window.__A9963_VERSION__={build:B,applyVersion:apply};
+})();
+</script>
+
+
+
+<script id="a9964-final-version">
+(()=>{
+  const B='B1.0 Alpha99.64';
+  function apply(){try{window.__A9964_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+  window.__A9964_VERSION__={build:B,applyVersion:apply};
+})();
+</script>
+
+
+<script id="a9965-final-version">
+(()=>{
+  const B='B1.0 Alpha99.65';
+  function apply(){try{window.__A9965_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+  window.__A9965_VERSION__={build:B,applyVersion:apply};
+})();
+</script>
+
+
+<script id="a9966-final-version">
+(()=>{
+  const B='B1.0 Alpha99.66';
+  function apply(){try{window.__A9966_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+})();
+</script>
+
+
+<script id="a9967-final-version">
+(()=>{
+  const B='B1.0 Alpha99.67';
+  function apply(){try{window.__A9967_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
 })();
 </script>
 </body></html>
