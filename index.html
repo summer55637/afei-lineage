@@ -38721,6 +38721,14 @@ const A9967_BUILD='B1.0 Alpha99.67';
   }
   apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
   try{
+    // 99.69 的舊版版本守門仍可能在部分重畫流程後再次套回 99.69；
+    // 讓它每次執行完都回到 99.70，只改顯示版本，不碰 99.69 QA/遊戲邏輯。
+    const p69=window.__A9969_TEST__;
+    if(p69&&typeof p69.applyVersion==='function'&&!p69.__a9970Wrapped){
+      const old69=p69.applyVersion;
+      p69.applyVersion=function(){const r=old69.apply(this,arguments);apply();return r};
+      p69.__a9970Wrapped=true;
+    }
     if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
     if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
     if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
@@ -38937,6 +38945,72 @@ const A9967_BUILD='B1.0 Alpha99.67';
     if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
     if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
   }catch(e){}
+})();
+</script>
+
+
+<!-- ===== B1.0 Alpha99.70：手機村莊背景透出修正 =====
+     只修手機版村莊主畫面：舊 a9817 .village-head 雖隱藏標題文字，仍以全尺寸深色漸層覆蓋場景。
+     PC版、NPC卡片、NPC功能彈窗、玩法/數值/存檔均不變。 -->
+<style id="a9970-mobile-village-bg-fix">
+@media(max-width:900px){
+  body.a9846-reference-ui #battle.village-mode #village-stage .village-head,
+  body.a9846-reference-ui.a9817-villageui #battle.village-mode #village-stage .village-head{
+    background:transparent!important;
+    background-image:none!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+  /* 防止較舊村莊皮膚重新把外層底板染回深色；NPC 小卡自己的咖啡色底保留。 */
+  body.a9846-reference-ui #battle.village-mode #village-stage,
+  body.a9846-reference-ui #battle.village-mode #village-stage.a66-village,
+  body.a9846-reference-ui #battle.village-mode #village-stage.a9848-overlay,
+  body.a9846-reference-ui #battle.village-mode #village-stage .village-body,
+  body.a9846-reference-ui #battle.village-mode #village-stage .village-npcs{
+    background:transparent!important;
+    background-image:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+}
+</style>
+<script id="a9970-final-version">
+(()=>{
+  const B='B1.0 Alpha99.70';
+  function apply(){
+    window.__BUILD_VERSION__=B;
+    try{document.title='樓梯口天堂 · '+B}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=B}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.70：修正手機版村莊 NPC 外層深色底板遮住背景；只保留每個 NPC 自己的咖啡色卡片。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.70｜手機村莊背景透出修正｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=B+' · 手機村莊背景透出'}catch(e){}
+  }
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const p69ok=window.__A9969_TEST__?.audit?.().ok===true;
+      // 99.69 audit 內部會依舊版設計重套自己的版本文字；驗證完立刻恢復 99.70。
+      apply();
+      add('99.69 核心保留',p69ok);
+      add('手機村莊透明修正樣式存在',!!document.getElementById('a9970-mobile-village-bg-fix'));
+      add('版本標記',window.__BUILD_VERSION__===B,{build:window.__BUILD_VERSION__});
+      if(innerWidth<=900&&document.querySelector('#battle.village-mode #village-stage .village-head')){
+        const h=getComputedStyle(document.querySelector('#battle.village-mode #village-stage .village-head'));
+        add('手機 village-head 實際透明',h.backgroundColor==='rgba(0, 0, 0, 0)'&&h.backgroundImage==='none',{backgroundColor:h.backgroundColor,backgroundImage:h.backgroundImage});
+      }
+    }catch(e){add('Alpha99.70 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:B,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a7RenderVillage==='function'){const b=a7RenderVillage;a7RenderVillage=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+  window.__A9970_TEST__={build:B,audit,applyVersion:apply,previous:window.__A9969_TEST__||null};
 })();
 </script>
 
