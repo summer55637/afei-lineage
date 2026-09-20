@@ -33361,10 +33361,25 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
   }
   function a9962CommitGroup(group,levels,alive,destroyed,scroll,used){
     const id=group.id;
-    // 特殊分堆：使用建立 group 時已記錄的原陣列 index；提交時不再 clone + signature 第二次掃描。
+    // Alpha99.68：批次中途會 yield，外部狀態可能改變；提交前先做交易式一致性檢查。
+    // 卷軸若被其他流程消耗，或原分堆數量已不足，整批取消，不扣本批卷軸、不覆蓋其他分堆。
+    if(Math.max(0,Number(a8Count(scroll)||0))<used)return{ok:false,reason:'強化卷軸數量在批次期間發生變化'};
+    if(group.kind==='plain'){
+      if(Math.max(0,Number(a16PlainCount(id)||0))<group.count)return{ok:false,reason:'原本的一般裝備分堆在批次期間發生變化'};
+    }else if(group.kind==='special'){
+      const src=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[];let matched=0;
+      for(const raw of src){const m=a9962CloneMeta(id,raw);if(a9931Sig(id,m)===group.sig)matched++}
+      if(matched<group.count)return{ok:false,reason:'原本的特殊裝備分堆在批次期間發生變化'};
+    }
+
+    // 特殊分堆不能沿用開始時的 array index：yield 期間若有其他 metadata 插入，index 會位移。
+    // 改回依同分堆 signature 移除指定數量；只多一次提交掃描，但可避免誤刪其他強化/詞綴/席琳分堆。
     if(group.kind==='special'){
-      const src=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],idx=group.indices||[],keep=[];let p=0;
-      for(let i=0;i<src.length;i++){if(p<idx.length&&i===idx[p]){p++;continue}keep.push(src[i])}
+      const src=Array.isArray(state?.gearInventoryMeta?.[id])?state.gearInventoryMeta[id]:[],keep=[];let removed=0;
+      for(const raw of src){
+        if(removed<group.count){const m=a9962CloneMeta(id,raw);if(a9931Sig(id,m)===group.sig){removed++;continue}}
+        keep.push(raw);
+      }
       state.gearInventoryMeta[id]=keep;if(!keep.length)delete state.gearInventoryMeta[id];
     }
     const arr=(state.gearInventoryMeta[id]||(state.gearInventoryMeta[id]=[])),base=group.template||{en:group.startEn||0,affix:{},seteff:false};
@@ -33375,7 +33390,7 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     if(!arr.length)delete state.gearInventoryMeta[id];
     if(destroyed>0){const left=Math.max(0,Number(state.inventory?.[id]||0)-destroyed);if(left>0)state.inventory[id]=left;else delete state.inventory[id]}
     if(used>0){const left=Math.max(0,Number(state.inventory?.[scroll]||0)-used);if(left>0)state.inventory[scroll]=left;else delete state.inventory[scroll]}
-    a16SyncLegacyPools();
+    a16SyncLegacyPools();return{ok:true};
   }
   function a9962Summary(id,mode,group,levels,alive,destroyed,used,shortage,blocked){
     const d=a8Item(id)||{n:id},lv={};
@@ -33441,7 +33456,8 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
       }
       if(guard<=0)toast('批次強化安全上限已觸發，已停止');
       if(used<1){toast('沒有可執行的強化');return false}
-      a9962CommitGroup(group,levels,alive,destroyed,scroll,used);
+      const commit=a9962CommitGroup(group,levels,alive,destroyed,scroll,used);
+      if(!commit?.ok){toast(commit?.reason||'批次期間背包狀態已變更，本次強化已取消');return false}
       if(lastRec){try{a23RecordEnhance(v.id,lastRec.from,lastRec.to,lastRec.scroll,lastRec.result,lastRec.p);if(state?.enhanceRules?.last)state.enhanceRules.last.location='inventory-batch'}catch(e){}}
       // 不產生逐件強化日誌，甚至不寫摘要到戰鬥日誌；只用單一 toast 回報。
       derive();save();try{renderDrawers()}catch(e){render()}
@@ -33479,7 +33495,7 @@ window.__A9924_TEST__={build:A9924_BUILD,audit:a9924Audit,probe:a9924Probe,ensur
     finally{Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;if(snap){state=snap;try{derive();render()}catch(e){}}}
     return{ok:rows.every(x=>x.ok),build:'B1.0 Alpha99.62',total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
   }
-  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD,engine:'alpha99.67-compact',sliceMs:A9967_BATCH_SLICE_MS,perf:()=>({...A9967_ENHANCE_PERF,last:A9967_ENHANCE_PERF.last?{...A9967_ENHANCE_PERF.last}:null})};
+  window.__A9962_BATCH_CORE__={run:a9962BatchEnhanceVariant,current:a9962CurrentGroup,probe:a9962Probe,get busy(){return A9962_BATCH_BUSY},yieldEvery:A9962_BATCH_YIELD_EVERY,guard:A9962_BATCH_GUARD,engine:'alpha99.67-compact',sliceMs:A9967_BATCH_SLICE_MS,specialCommit:'signature-rescan-transactional',perf:()=>({...A9967_ENHANCE_PERF,last:A9967_ENHANCE_PERF.last?{...A9967_ENHANCE_PERF.last}:null})};
   function a9931OpenVariant(token){
     const v=A9931_CACHE.get(String(token));if(!v)return false;if(v.kind==='normal'&&!a9931Gear(v.id))return a68OpenItem(v.id,'');
     const m=a68EnsureModal();m.dataset.item=v.id;m.dataset.slot='';m.dataset.a9931Token=v.token;const body=m.querySelector('#a68-modal-body');body.innerHTML=a9931DetailHtml(v);m.classList.add('open');
@@ -38215,6 +38231,62 @@ const A9967_BUILD='B1.0 Alpha99.67';
   window.__A9967_TEST__={build:A9967_BUILD,audit,probe,stats,applyVersion,previous:window.__A9966_TEST__||null};
 })();
 
+// ===== Alpha99.68：整組強化 yield 期間分堆一致性修正 =====
+(()=>{
+  const A9968_BUILD='B1.0 Alpha99.68';
+  function applyVersion(){
+    window.__BUILD_VERSION__=A9968_BUILD;
+    try{document.title='樓梯口天堂 · '+A9968_BUILD}catch(e){}
+    try{const v=document.querySelector('#a46-login-screen .a46-version');if(v)v.textContent=A9968_BUILD}catch(e){}
+    try{const note=document.querySelector('#a46-login-screen .a46-login-note');if(note)note.textContent='Alpha99.68：修正大量特殊分堆強化在 yield 期間若背包 metadata 插入/位移，可能誤刪其他分堆；提交改 signature 重核＋交易式一致性檢查。'}catch(e){}
+    try{const sub=document.querySelector('#create-screen .create-sub');if(sub)sub.textContent='全面重製核心 Alpha99.68｜整組強化一致性修正｜PC＋手機'}catch(e){}
+    try{const badge=document.querySelector('.source-badge');if(badge)badge.textContent=A9968_BUILD+' · 批量強化安全提交'}catch(e){}
+    try{if(state){state.saveMeta=state.saveMeta||{};state.saveMeta.batchEnhanceConsistency='alpha99.68'}}catch(e){}
+  }
+  function audit(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    try{
+      const c=window.__A9962_BATCH_CORE__;
+      add('99.67輕量強化核心保留',c?.engine==='alpha99.67-compact',{engine:c?.engine});
+      add('特殊分堆提交改signature重核',c?.specialCommit==='signature-rescan-transactional',{specialCommit:c?.specialCommit});
+      add('手機6ms切片保留',c?.sliceMs===6,{sliceMs:c?.sliceMs});
+      add('舊256次yield保留',c?.yieldEvery===256,{yieldEvery:c?.yieldEvery});
+      add('99.66潘朵拉快取保留',window.__A9966_TEST__?.audit?.().ok===true,window.__A9966_TEST__?.audit?.());
+      add('99.65手機省電保留',window.__A9965_TEST__?.audit?.().ok===true,window.__A9965_TEST__?.audit?.());
+    }catch(e){add('Alpha99.68 audit exception',false,{error:String(e?.stack||e)})}
+    return{ok:rows.every(x=>x.ok),build:A9968_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  async function probe(){
+    const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+    const snap=state?JSON.parse(JSON.stringify(state)):null,oldRnd=Math.random,oldSave=save,oldRD=renderDrawers,oldRender=render,oldToast=toast;
+    try{
+      // 先跑既有99.67完整回歸。
+      const p67=await window.__A9967_TEST__?.probe?.();add('Alpha99.67完整回歸',p67?.ok===true,{passed:p67?.passed,total:p67?.total});
+
+      // 重現99.67曾漏到的情境：300件+1特殊分堆強化途中，其他+4 metadata插到陣列最前面。
+      a76TestReset('elf',60);state.inventory={clk_elf:301,scroll_armor:1000};state.gearInventoryMeta={clk_elf:[...Array.from({length:300},()=>({en:1,affix:{}})),{en:5,affix:{}}]};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();
+      save=()=>true;renderDrawers=()=>true;render=()=>true;toast=()=>{};Math.random=()=>0;
+      const v=window.__A9931_TEST__?.variants?.().find(x=>x.id==='clk_elf'&&Number(x.meta?.en||0)===1);
+      setTimeout(()=>{state.gearInventoryMeta.clk_elf.unshift({en:4,affix:{}});state.inventory.clk_elf+=1},0);
+      const ok=await window.__A9962_BATCH_CORE__.run(v,'once');
+      const vs=(window.__A9931_TEST__?.variants?.()||[]).filter(x=>x.id==='clk_elf').map(x=>({en:Number(x.meta?.en||0),count:Number(x.count||0)}));
+      const cnt=en=>vs.filter(x=>x.en===en).reduce((n,x)=>n+x.count,0);
+      add('yield期間其他分堆插入不會被誤刪',ok&&cnt(1)===0&&cnt(2)===300&&cnt(4)===1&&cnt(5)===1&&Number(state.inventory.clk_elf||0)===302,{variants:vs,total:state.inventory.clk_elf,last:window.__A9962_LAST_BATCH__});
+
+      // 卷軸若在yield期間被其他流程消耗，整批必須取消，不能免費完成強化。
+      a76TestReset('elf',60);state.inventory={clk_elf:300,scroll_armor:300};state.gearInventoryMeta={};state.affixInventory={};state.enhanceInventory={};state.lockedItems={};a16EnsureEnhanceState();Math.random=()=>0;
+      const v2=window.__A9931_TEST__?.variants?.().find(x=>x.id==='clk_elf'&&x.kind==='plain');
+      setTimeout(()=>{state.inventory.scroll_armor=0},0);
+      const ok2=await window.__A9962_BATCH_CORE__.run(v2,'once');const vs2=(window.__A9931_TEST__?.variants?.()||[]).filter(x=>x.id==='clk_elf');
+      add('yield期間卷軸被消耗則交易式取消',ok2===false&&Number(state.inventory.scroll_armor||0)===0&&vs2.length===1&&Number(vs2[0]?.meta?.en||0)===0&&Number(vs2[0]?.count||0)===300,{ok:ok2,scrolls:state.inventory.scroll_armor,variants:vs2.map(x=>({en:Number(x.meta?.en||0),count:x.count}))});
+    }catch(e){add('Alpha99.68 probe exception',false,{error:String(e?.stack||e)})}
+    finally{Math.random=oldRnd;save=oldSave;renderDrawers=oldRD;render=oldRender;toast=oldToast;try{if(snap){state=snap;derive();render()}else state=null}catch(e){}applyVersion()}
+    return{ok:rows.every(x=>x.ok),build:A9968_BUILD,total:rows.length,passed:rows.filter(x=>x.ok).length,rows};
+  }
+  applyVersion();
+  try{if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);applyVersion();return r}}}catch(e){}
+  window.__A9968_TEST__={build:A9968_BUILD,audit,probe,applyVersion,previous:window.__A9967_TEST__||null};
+})();
 
 })();
 </script>
@@ -38712,6 +38784,19 @@ const A9967_BUILD='B1.0 Alpha99.67';
 (()=>{
   const B='B1.0 Alpha99.67';
   function apply(){try{window.__A9967_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
+  apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
+  try{
+    if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowLogin==='function'){const b=a46ShowLogin;a46ShowLogin=function(){const r=b.apply(this,arguments);apply();return r}}
+    if(typeof a46ShowSlots==='function'){const b=a46ShowSlots;a46ShowSlots=function(){const r=b.apply(this,arguments);apply();return r}}
+  }catch(e){}
+})();
+</script>
+
+<script id="a9968-final-version">
+(()=>{
+  const B='B1.0 Alpha99.68';
+  function apply(){try{window.__A9968_TEST__?.applyVersion?.()}catch(e){try{window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B}catch(_e){}}}
   apply();setTimeout(apply,0);window.addEventListener('pageshow',apply,{passive:true});
   try{
     if(typeof render==='function'){const b=render;render=function(){const r=b.apply(this,arguments);apply();return r}}
