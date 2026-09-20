@@ -39070,4 +39070,74 @@ const A9967_BUILD='B1.0 Alpha99.67';
 })();
 </script>
 
+
+
+<!-- ===== B1.0 Alpha99.72：PC / 手機版本顯示同步鎖定 =====
+     修正舊版 99.70 / 99.71 顯示鉤子在不同介面重畫後造成版本文字不一致。
+     只鎖定 UI 顯示版本；不改遊戲數值、存檔、NPC、戰鬥與 Alpha99.71 的手機村莊 X 移除。 -->
+<script id="a9972-version-sync-lock">
+(()=>{
+  const B='B1.0 Alpha99.72';
+  const NOTE='Alpha99.72：PC／手機版本顯示同步；保留手機村莊背景透出與右側 X 移除。';
+  let syncing=false;
+  function sync(){
+    if(syncing)return;
+    syncing=true;
+    try{
+      window.__BUILD_VERSION__=B;
+      const title='樓梯口天堂 · '+B;
+      if(document.title!==title)document.title=title;
+      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>{if(v.textContent!==B)v.textContent=B});
+      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>{if(v.textContent!==NOTE)v.textContent=NOTE});
+      document.querySelectorAll('#create-screen .create-sub').forEach(v=>{
+        const t='全面重製核心 Alpha99.72｜PC／手機版本同步｜手機村莊背景/X修正保留';
+        if(v.textContent!==t)v.textContent=t;
+      });
+      document.querySelectorAll('.source-badge').forEach(v=>{
+        const t=B+' · PC／手機版本同步';
+        if(v.textContent!==t)v.textContent=t;
+      });
+    }catch(e){}
+    syncing=false;
+  }
+  sync();
+  queueMicrotask(sync);
+  setTimeout(sync,0);
+  window.addEventListener('pageshow',sync,{passive:true});
+  window.addEventListener('resize',sync,{passive:true});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()},{passive:true});
+  try{
+    const obs=new MutationObserver(()=>queueMicrotask(sync));
+    if(document.documentElement)obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});
+    window.__A9972_VERSION_OBSERVER__=obs;
+  }catch(e){}
+  try{
+    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){
+      const fn=window[name];
+      if(typeof fn==='function'&&!fn.__a9972Wrapped){
+        const w=function(){const r=fn.apply(this,arguments);sync();return r};
+        w.__a9972Wrapped=true;
+        window[name]=w;
+      }
+    }
+  }catch(e){}
+  window.__A9972_TEST__={
+    build:B,
+    applyVersion:sync,
+    audit(){
+      sync();
+      const values=[...document.querySelectorAll('#a46-login-screen .a46-version')].map(v=>v.textContent);
+      return{
+        ok:window.__BUILD_VERSION__===B && values.every(v=>v===B),
+        build:window.__BUILD_VERSION__,
+        visibleVersions:values,
+        mobileVillageXStyle:!!document.getElementById('a9971-mobile-village-x-remove'),
+        mobileVillageBgStyle:!!document.getElementById('a9970-mobile-village-bg-fix')
+      };
+    },
+    previous:window.__A9971_TEST__||null
+  };
+})();
+</script>
+
 </body></html>
