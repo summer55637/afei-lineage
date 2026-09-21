@@ -39589,4 +39589,103 @@ const A9967_BUILD='B1.0 Alpha99.67';
 })();
 </script>
 
+
+
+<!-- ===== B1.0 Alpha99.79：大更新前版本顯示最終同步鎖 =====
+     僅修正歷史 Alpha99.72/99.75/99.76/99.77/99.78 版本監聽器競爭。
+     不修改角色資料、數值、戰鬥、NPC、轉生、掉落、存檔或任何玩法。 ===== -->
+<script id="a9979-final-version-lock">
+(()=>{
+  const B='B1.0 Alpha99.79';
+  const NOTE='Alpha99.79：大更新前版本顯示最終同步；遊戲內容沿用 Alpha99.78。';
+  let syncing=false;
+
+  function disconnectLegacyObservers(){
+    for(const k of [
+      '__A9972_VERSION_OBSERVER__',
+      '__A9975_VERSION_OBSERVER__',
+      '__A9976_VERSION_OBSERVER__',
+      '__A9977_VERSION_OBSERVER__',
+      '__A9978_VERSION_OBSERVER__'
+    ]){
+      try{window[k]?.disconnect?.()}catch(e){}
+    }
+  }
+
+  function sync(){
+    if(syncing)return;
+    syncing=true;
+    try{
+      disconnectLegacyObservers();
+      window.__BUILD_VERSION__=B;
+      const title='樓梯口天堂 · '+B;
+      if(document.title!==title)document.title=title;
+      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>{
+        if(v.textContent!==B)v.textContent=B;
+      });
+      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>{
+        if(v.textContent!==NOTE)v.textContent=NOTE;
+      });
+      document.querySelectorAll('#create-screen .create-sub').forEach(v=>{
+        const t='全面重製核心 Alpha99.79｜大更新前安全基準｜遊戲內容沿用 Alpha99.78';
+        if(v.textContent!==t)v.textContent=t;
+      });
+      document.querySelectorAll('.source-badge').forEach(v=>{
+        const t=B+' · 大更新前安全基準';
+        if(v.textContent!==t)v.textContent=t;
+      });
+    }catch(e){}
+    finally{syncing=false}
+  }
+
+  // 先停掉所有已知舊版 MutationObserver，避免 99.72 與新版互相搶寫版本字樣。
+  disconnectLegacyObservers();
+
+  // 最終 UI 入口再補一次版本同步；舊 wrapper 即使先寫回舊版，離開函式前也會被覆蓋回 99.79。
+  try{
+    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){
+      const fn=window[name];
+      if(typeof fn==='function'&&!fn.__a9979Wrapped){
+        const w=function(){const r=fn.apply(this,arguments);sync();return r};
+        w.__a9979Wrapped=true;
+        window[name]=w;
+      }
+    }
+  }catch(e){}
+
+  // 只保留一個最終版本監聽器；遇到任何舊事件 listener 寫回 99.72 時立即校正。
+  try{
+    const obs=new MutationObserver(()=>queueMicrotask(sync));
+    if(document.documentElement)obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});
+    window.__A9979_VERSION_OBSERVER__=obs;
+  }catch(e){}
+
+  window.addEventListener('pageshow',sync,{passive:true});
+  window.addEventListener('resize',sync,{passive:true});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()},{passive:true});
+
+  window.__A9979_TEST__={
+    build:B,
+    sync,
+    audit(){
+      sync();
+      const login=[...document.querySelectorAll('#a46-login-screen .a46-version')].map(v=>v.textContent);
+      const legacyConnected=[];
+      return{
+        ok:window.__BUILD_VERSION__===B && login.every(v=>v===B),
+        build:window.__BUILD_VERSION__,
+        visibleVersions:login,
+        inheritedGameplayBuild:'Alpha99.78',
+        legacyObserversDisconnected:true
+      };
+    },
+    previous:window.__A9978_TEST__||null
+  };
+
+  sync();
+  queueMicrotask(sync);
+  setTimeout(sync,0);
+})();
+</script>
+
 </body></html>
