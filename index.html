@@ -38410,6 +38410,150 @@ const A9967_BUILD='B1.0 Alpha99.67';
   window.__A9969_TEST__={build:A9969_BUILD,audit,probe,stress,applyVersion,previous:window.__A9968_TEST__||null};
 })();
 
+// ===== Alpha99.80：孟婆轉生核心回收至主作用域 + PC/手機大更新前安全基準 =====
+// 99.75~99.78 曾以外掛 script 直接引用主核心的 DATA/state/derive，瀏覽器會產生跨作用域 ReferenceError。
+// 本版把真正的轉生核心放回主遊戲 IIFE，外部舊補丁停用；規格不變。
+const A9980_BUILD='B1.0 Alpha99.80';
+const A9980_MENGPO='npc_mengpo';
+const A9980_MIN_LV=1000,A9980_COST=1,A9980_GIFT=1000;
+const A9980_STAT_KEYS=['str','dex','con','int','wis','cha'];
+function a9980LevelEarned(lv){return Math.max(0,Math.floor(Number(lv||0))-49)}
+function a9980Spent(){return A9980_STAT_KEYS.reduce((n,k)=>n+Math.max(0,Math.floor(Number(state?.a9885?.alloc?.[k]||0))),0)}
+function a9980Ensure(){
+  if(!state?.player)return null;
+  if(!state.rebirth||typeof state.rebirth!=='object'||Array.isArray(state.rebirth))state.rebirth={};
+  const r=state.rebirth;
+  r.count=Math.max(0,Math.floor(Number(r.count||0)));
+  if(!Object.prototype.hasOwnProperty.call(r,'levelCarry')||!Number.isFinite(Number(r.levelCarry)))r.levelCarry=r.count*999;
+  r.levelCarry=Math.max(0,Math.floor(Number(r.levelCarry||0)));
+  r.statPointBank=Math.max(0,Math.floor(Number(r.statPointBank||0)));
+  r.totalGift=Math.max(0,Math.floor(Number(r.totalGift||0)));
+  r.totalCarried=Math.max(0,Math.floor(Number(r.totalCarried||0)));
+  return r;
+}
+function a9980Bank(){return Math.max(0,Math.floor(Number(a9980Ensure()?.statPointBank||0)))}
+function a9980Available(){return Math.max(0,a9980LevelEarned(state?.player?.lv||0)+a9980Bank()-a9980Spent())}
+function a9980DisplayLevel(){return Math.max(1,Math.floor(Number(state?.player?.lv||1)))}
+function a9980EffectiveLevel(){return a9980DisplayLevel()+Math.max(0,Math.floor(Number(a9980Ensure()?.levelCarry||0)))}
+
+// 衍生能力只在計算期間使用「顯示等級 + 已永久保留等級」，算完立即還原畫面等級。
+const _a9980DeriveBase=derive;
+derive=function(){
+  if(!state?.player)return _a9980DeriveBase.apply(this,arguments);
+  const shown=state.player.lv,eff=a9980EffectiveLevel();
+  if(Number(shown||1)===eff)return _a9980DeriveBase.apply(this,arguments);
+  state.player.lv=eff;
+  try{return _a9980DeriveBase.apply(this,arguments)}
+  finally{state.player.lv=shown}
+};
+
+function a9980IsMengpo(v){return String(typeof v==='object'?(v?.id||''):(v||''))===A9980_MENGPO}
+function a9980FindMengpo(){return DATA?.towns?.town_oren?.npcs?.find(n=>a9980IsMengpo(n))||null}
+function a9980NormalizeMengpo(){
+  const n=a9980FindMengpo();
+  if(n){
+    n.title='轉生';n.type='rebirth';
+    n.d='Lv.1000 以上可轉生。費用固定 1 金幣、次數無上限；每次等級回 Lv.1、EXP 歸零、額外獲得 1000 點可分配能力點；其餘角色資料全部保留，超過 Lv.1000 的等級成長也完整保留。';
+  }
+  return n;
+}
+function a9980RenderRebirth(npc=a9980FindMengpo()){
+  const box=document.getElementById('village-action');if(!box||!state?.player)return false;
+  const r=a9980Ensure(),lv=a9980DisplayLevel(),gold=Math.max(0,Math.floor(Number(state.player.gold||0))),before=a9980Available();
+  const eligible=lv>=A9980_MIN_LV&&gold>=A9980_COST,need=Math.max(0,A9980_MIN_LV-lv);
+  box.innerHTML='<div class="village-section-title">'+escapeHtml(npc?.n||'孟婆')+' · 轉生</div><div id="a9974-rebirth">'+
+    '<div class="a9974-hero"><b>Lv.1000 以上無限轉生</b><small>費用固定 1 金幣。每次轉生：Lv.1、EXP 0、+1000 可分配能力點；其他角色資料與既有等級成長全部保留。</small></div>'+
+    '<div class="a9974-grid">'+
+      '<div class="a9974-stat"><small>目前等級</small><b>Lv.'+fmt(lv)+'</b></div>'+
+      '<div class="a9974-stat"><small>轉生次數</small><b>'+fmt(r.count)+' 次</b></div>'+
+      '<div class="a9974-stat"><small>轉生費用</small><b>1 金幣</b></div>'+
+      '<div class="a9974-stat"><small>目前可分配點</small><b>'+fmt(before)+'</b></div>'+
+      '<div class="a9974-stat"><small>本次贈送</small><b>+1000</b></div>'+
+      '<div class="a9974-stat"><small>轉生後等級</small><b>Lv.1</b></div>'+
+    '</div><div class="a9974-preserve"><strong>完整保留：</strong>STR／DEX／CON／INT／WIS／CHA、裝備、背包、技能、萬能藥、精通、任務、地圖、自動設定、HP／MP／攻擊／AC／MR 等既有成長與其他存檔資料。'+(lv>A9980_MIN_LV?'目前超過 Lv.1000 的 '+fmt(lv-A9980_MIN_LV)+' 級成長也會完整保留。':'')+'</div>'+
+    '<div class="a9974-preserve '+(eligible?'a9974-ready':'a9974-lock')+'">'+(eligible?'目前符合轉生條件。':(lv<A9980_MIN_LV?'還需要 '+fmt(need)+' 級才能轉生。':'金幣不足。'))+'</div>'+
+    '<button type="button" class="a9974-btn" id="a9980-do" '+(eligible?'':'disabled')+'>'+(eligible?'支付 1 金幣轉生｜回 Lv.1 ＋1000 能力點':(lv<A9980_MIN_LV?'需要 Lv.1000 才能轉生':'金幣不足'))+'</button></div>';
+  const b=document.getElementById('a9980-do');if(b)b.onclick=()=>a9980DoRebirth(false);
+  return true;
+}
+function a9980DoRebirth(skipConfirm=false){
+  if(!state?.player)return false;
+  const r=a9980Ensure(),oldLv=a9980DisplayLevel();
+  if(oldLv<A9980_MIN_LV){toast('需要 Lv.1000 才能轉生');return false}
+  if(Number(state.player.gold||0)<A9980_COST){toast('至少需要 1 金幣才能轉生');return false}
+  const before=a9980Available(),carryLevels=Math.max(0,oldLv-1),carryPoints=a9980LevelEarned(oldLv);
+  if(!skipConfirm&&!confirm('確定要進行轉生？\n\n費用：1 金幣\n等級：Lv.'+oldLv+' → Lv.1\nEXP：歸零\n額外能力點：+1000\n其餘角色資料：全部保留'))return false;
+  r.statPointBank=a9980Bank()+carryPoints+A9980_GIFT;
+  r.levelCarry=Math.max(0,Math.floor(Number(r.levelCarry||0)))+carryLevels;
+  r.totalGift=Math.max(0,Math.floor(Number(r.totalGift||0)))+A9980_GIFT;
+  r.totalCarried=Math.max(0,Math.floor(Number(r.totalCarried||0)))+carryPoints;
+  r.count=Math.max(0,Math.floor(Number(r.count||0)))+1;
+  r.lastAt=Date.now();r.lastFromLevel=oldLv;r.lastGift=A9980_GIFT;r.lastCarry=carryPoints;r.lastLevelCarry=carryLevels;r.lastCost=A9980_COST;
+  state.player.gold=Number(state.player.gold||0)-A9980_COST;
+  state.player.lv=1;
+  state.player.exp=0;
+  derive();save();
+  const after=a9980Available();
+  log('孟婆轉生完成｜1 金幣｜Lv.'+oldLv+' → Lv.1｜EXP → 0｜第 '+r.count+' 轉｜可分配能力點 '+fmt(before)+' → '+fmt(after)+'（+1000）','lv');
+  try{render()}catch(e){}
+  try{toast('轉生完成！獲得 1000 點能力點')}catch(e){}
+  setTimeout(()=>{try{if(state?.inVillage&&String(state.mapId)==='town_oren'){const n=a9980FindMengpo();if(n){state._a7NpcId=n.id;a9980RenderRebirth(n);try{a73FinalizeNpcAction('town_oren',n)}catch(e){}}}}catch(e){}},0);
+  return after===before+A9980_GIFT;
+}
+
+// 解除舊 rename=false gate，只對孟婆生效。
+try{A26_PUBLIC_GATES?.gatedNpcIds?.delete?.(A9980_MENGPO)}catch(e){}
+try{if(Array.isArray(A41_GATED_IDS)){let i;while((i=A41_GATED_IDS.indexOf(A9980_MENGPO))>=0)A41_GATED_IDS.splice(i,1)}}catch(e){}
+const _a9980ExplicitNewOff=a61ExplicitNewOff;
+a61ExplicitNewOff=function(id){if(a9980IsMengpo(id))return false;return _a9980ExplicitNewOff.apply(this,arguments)};
+const _a9980ExplicitOff=a72ExplicitOff;
+a72ExplicitOff=function(id){if(a9980IsMengpo(id))return false;return _a9980ExplicitOff.apply(this,arguments)};
+const _a9980Status=a52NpcStatus;
+a52NpcStatus=function(townId,npc){if(a9980IsMengpo(npc))return{mode:'usable',label:'可操作',reason:'Lv.1000 以上無限轉生'};return _a9980Status.apply(this,arguments)};
+const _a9980Route=a72Route;
+a72Route=function(townId,npc){if(a9980IsMengpo(npc))return'rebirth9980';return _a9980Route.apply(this,arguments)};
+const _a9980Unavailable=a72RenderUnavailable;
+a72RenderUnavailable=function(npc){if(a9980IsMengpo(npc))return a9980RenderRebirth(npc);return _a9980Unavailable.apply(this,arguments)};
+const _a9980Dispatch=a72DispatchNpc;
+a72DispatchNpc=function(townId,npc){
+  if(!a9980IsMengpo(npc))return _a9980Dispatch.apply(this,arguments);
+  if(!state||!npc)return false;a9980NormalizeMengpo();a72SetActiveNpc(A9980_MENGPO);a9980RenderRebirth(npc);
+  try{a52DecorateNpcAction(npc)}catch(e){}try{a73FinalizeNpcAction(townId||'town_oren',npc)}catch(e){}try{a972ShowNpcAction?.()}catch(e){}try{a9846DecorateNpc?.()}catch(e){}
+  return true;
+};
+a9980NormalizeMengpo();
+
+function a9980Audit(){
+  const issues=[],n=a9980NormalizeMengpo();
+  if(!n)issues.push('找不到孟婆');
+  if(a61ExplicitNewOff(A9980_MENGPO)!==false)issues.push('孟婆仍被新阿肥 gate 停用');
+  if(a72ExplicitOff(A9980_MENGPO)!==false)issues.push('孟婆仍被 Alpha72 gate 停用');
+  if(a72Route('town_oren',n)!=='rebirth9980')issues.push('孟婆路由錯誤');
+  if(a52NpcStatus('town_oren',n)?.mode!=='usable')issues.push('孟婆狀態不是 usable');
+  return{ok:issues.length===0,build:A9980_BUILD,issues,npc:n?{id:n.id,name:n.n,title:n.title,type:n.type}:null,rules:{minLevel:1000,cost:1,unlimited:true,resetLevel:1,resetExp:0,gift:1000,preserveAllOther:true,over1000Carry:true}};
+}
+async function a9980Probe(){
+  const snap=state?JSON.parse(JSON.stringify(state)):null;
+  const oldSave=save,oldRender=render,oldLog=log,oldToast=toast,oldConfirm=window.confirm;
+  const rows=[],add=(name,ok,detail={})=>rows.push({name,ok:!!ok,detail});
+  try{
+    save=()=>true;render=()=>true;log=()=>{};toast=()=>{};window.confirm=()=>true;
+    a76TestReset('knight',1);state.player.lv=1000;state.player.gold=100;state.player.exp=777;state.player.stats.str=100;state.inventory={...state.inventory,potion_heal:77};derive();
+    const keep1=JSON.stringify({stats:state.player.stats,inventory:state.inventory,equipment:state.equipment,skills:state.skills,mapId:state.mapId});
+    const b1=a9980Available(),e1=a9980EffectiveLevel(),ok1=a9980DoRebirth(true),keep1a=JSON.stringify({stats:state.player.stats,inventory:state.inventory,equipment:state.equipment,skills:state.skills,mapId:state.mapId});
+    add('Lv1000轉生核心',ok1&&state.player.lv===1&&state.player.exp===0&&state.player.gold===99&&state.rebirth.count===1&&a9980Available()===b1+1000&&a9980EffectiveLevel()===e1&&keep1===keep1a,{lv:state.player.lv,exp:state.player.exp,gold:state.player.gold,before:b1,after:a9980Available(),effective:a9980EffectiveLevel()});
+    a76TestReset('knight',1);state.player.lv=1050;state.player.gold=100;state.player.stats.str=101;derive();const e2=a9980EffectiveLevel(),b2=a9980Available();const ok2=a9980DoRebirth(true);
+    add('Lv1050超額成長完整保留',ok2&&state.player.lv===1&&state.player.exp===0&&state.player.stats.str===101&&a9980EffectiveLevel()===e2&&a9980Available()===b2+1000,{effectiveBefore:e2,effectiveAfter:a9980EffectiveLevel(),str:state.player.stats.str});
+  }catch(e){add('probe exception',false,{error:String(e?.stack||e)})}
+  finally{
+    save=oldSave;render=oldRender;log=oldLog;toast=oldToast;window.confirm=oldConfirm;
+    try{if(snap){state=snap;derive();render()}else state=null}catch(e){}
+  }
+  return{ok:rows.every(x=>x.ok),build:A9980_BUILD,rows};
+}
+window.__A9980_TEST__={build:A9980_BUILD,audit:a9980Audit,probe:a9980Probe,effectiveLevel:a9980EffectiveLevel,available:a9980Available,render:a9980RenderRebirth,doRebirth:a9980DoRebirth};
+
+
 })();
 </script>
 
@@ -39160,531 +39304,44 @@ const A9967_BUILD='B1.0 Alpha99.67';
 #a9974-rebirth .a9974-ready{color:#7ee08a}.a9974-rebirth .a9974-lock{color:#e19a82}
 @media(max-width:500px){#a9974-rebirth .a9974-grid{grid-template-columns:1fr 1fr}.a9974-rebirth .a9974-btn{min-height:46px}}
 </style>
-<script id="a9974-rebirth-core">
-(()=>{
-  const B='B1.0 Alpha99.75',MIN_LV=1000,GIFT=1000,COST=1;
-  const KEYS=['str','dex','con','int','wis','cha'];
-  let syncing=false;
-
-  function levelEarned(lv){return Math.max(0,Math.floor(Number(lv||0))-49)}
-  function spent(){return KEYS.reduce((n,k)=>n+Math.max(0,Math.floor(Number(state?.a9885?.alloc?.[k]||0))),0)}
-  function ensure(){
-    if(!state?.player)return null;
-    if(!state.rebirth||typeof state.rebirth!=='object'||Array.isArray(state.rebirth))state.rebirth={};
-    const r=state.rebirth;
-    r.count=Math.max(0,Math.floor(Number(r.count||0)));
-    // Alpha99.77：舊 99.76 存檔沒有 levelCarry 時，以每轉 999 級回填，確保既有轉生角色不掉成長。
-    if(!Object.prototype.hasOwnProperty.call(r,'levelCarry')||!Number.isFinite(Number(r.levelCarry)))r.levelCarry=r.count*999;
-    r.levelCarry=Math.max(0,Math.floor(Number(r.levelCarry||0)));
-    r.statPointBank=Math.max(0,Math.floor(Number(r.statPointBank||0)));
-    r.totalGift=Math.max(0,Math.floor(Number(r.totalGift||0)));
-    r.totalCarried=Math.max(0,Math.floor(Number(r.totalCarried||0)));
-    return r;
-  }
-  function bank(){return Math.max(0,Math.floor(Number(ensure()?.statPointBank||0)))}
-  function totalEarned(){return levelEarned(state?.player?.lv||0)+bank()}
-  function available(){return Math.max(0,totalEarned()-spent())}
-  function findNpc(){return DATA?.towns?.town_oren?.npcs?.find(n=>String(n.id||'')==='npc_mengpo')||null}
-  function normalizeNpc(){
-    const n=findNpc();if(!n)return null;
-    n.title='轉生';n.d='Lv.1000 以上可轉生。費用 1 金幣，轉生次數無上限；每次把等級改回 Lv.1、EXP 歸零，其餘資料全部保留，超過 Lv.1000 的等級成長也不會消失，並額外獲得 1000 點可分配能力點。';
-    return n;
-  }
-  function preview(){
-    ensure();const lv=Math.floor(Number(state?.player?.lv||1)),carry=levelEarned(lv),before=available();
-    const gold=Math.max(0,Math.floor(Number(state?.player?.gold||0)));return{lv,levelEligible:lv>=MIN_LV,afford:gold>=COST,eligible:lv>=MIN_LV&&gold>=COST,gold,count:Number(state?.rebirth?.count||0),carry,gift:GIFT,cost:COST,bankBefore:bank(),availableBefore:before,bankAfter:bank()+carry+GIFT,availableAfter:before+GIFT};
-  }
-  function renderRebirth(npc=findNpc()){
-    const box=document.getElementById('village-action');if(!box||!state?.player)return false;
-    const r=ensure(),p=preview(),need=Math.max(0,MIN_LV-p.lv);
-    box.innerHTML='<div class="village-section-title">'+escapeHtml(npc?.n||'孟婆')+' · 轉生</div><div id="a9974-rebirth">'+
-      '<div class="a9974-hero"><b>Lv.1000 無限轉生</b><small>費用固定 1 金幣。每次轉生把角色等級改回 Lv.1、EXP 歸零；裝備、背包、技能、能力值、萬能藥、精通、任務／地圖進度、自動設定與其他存檔資料全部保留。若超過 Lv.1000 才轉生，多出的等級成長也完整保留。轉生次數沒有上限。</small></div>'+
-      '<div class="a9974-grid">'+
-        '<div class="a9974-stat"><small>目前等級</small><b>Lv.'+fmt(p.lv)+'</b></div>'+
-        '<div class="a9974-stat"><small>轉生次數</small><b>'+fmt(r.count)+' 次</b></div>'+
-        '<div class="a9974-stat"><small>轉生費用</small><b>'+fmt(COST)+' 金幣</b></div>'+
-        '<div class="a9974-stat"><small>目前可分配點</small><b>'+fmt(p.availableBefore)+'</b></div>'+
-        '<div class="a9974-stat"><small>本次轉生贈送</small><b>+'+fmt(GIFT)+'</b></div>'+
-      '</div>'+
-      '<div class="a9974-preserve"><strong>能力點保留機制：</strong>轉生前本輪 Lv.50+ 已取得的 '+fmt(p.carry)+' 點會先轉成永久點數，再額外贈送 '+fmt(GIFT)+' 點。因此轉生後可分配能力點會比轉生前<strong>正好多 '+fmt(GIFT)+' 點</strong>，已經配出去的能力值也不會被退掉或消失。</div>'+
-      '<div class="a9974-preserve '+(p.eligible?'a9974-ready':'a9974-lock')+'">'+(p.levelEligible?(p.afford?'已符合轉生條件｜次數無上限。':'等級已符合，但至少需要 '+fmt(COST)+' 金幣。'):'尚未符合條件，還需要 '+fmt(need)+' 級。')+'</div>'+
-      '<button type="button" class="a9974-btn" id="a9974-do" '+(p.eligible?'':'disabled')+'>'+(p.eligible?'支付 1 金幣轉生｜回 Lv.1 ＋1000 能力點':(p.levelEligible?'金幣不足':'需要 Lv.1000 才能轉生'))+'</button>'+
-    '</div>';
-    const b=document.getElementById('a9974-do');if(b)b.onclick=()=>doRebirth();
-    return true;
-  }
-  function doRebirth(skipConfirm=false){
-    if(!state?.player)return false;const r=ensure(),oldLv=Math.floor(Number(state.player.lv||1));
-    if(oldLv<MIN_LV){toast('需要 Lv.'+MIN_LV+' 才能轉生');return false}
-    if(Number(state.player.gold||0)<COST){toast('至少需要 '+COST+' 金幣才能轉生');return false}
-    const before=available(),carry=levelEarned(oldLv);
-    if(!skipConfirm&&!confirm('確定要進行轉生？\n\n費用：1 金幣\n等級：Lv.'+oldLv+' → Lv.1\nEXP：歸零\n轉生次數：無上限\n其餘角色資料：全部保留\n額外獲得：1000 點可分配能力點'))return false;
-    // 將本輪依等級取得的能力點永久化，避免 Lv.1000→1 後資格被公式收回，再加本次贈送 1000 點。
-    r.statPointBank=bank()+carry+GIFT;
-    r.totalCarried=Math.max(0,Math.floor(Number(r.totalCarried||0)))+carry;
-    r.totalGift=Math.max(0,Math.floor(Number(r.totalGift||0)))+GIFT;
-    // 保留這一輪從 Lv.1 練到實際轉生等級所取得的全部等級成長。
-    // 例如 Lv.1050 轉生會保留 1049 級，而不是固定只保留 999 級。
-    r.levelCarry=Math.max(0,Math.floor(Number(r.levelCarry||0)))+Math.max(0,oldLv-1);
-    r.count=Math.max(0,Math.floor(Number(r.count||0)))+1;
-    r.lastAt=Date.now();r.lastFromLevel=oldLv;r.lastGift=GIFT;r.lastCarry=carry;r.lastLevelCarry=Math.max(0,oldLv-1);r.lastCost=COST;
-    state.player.gold=Number(state.player.gold||0)-COST;
-    state.player.lv=1;
-    // 玩家指定：轉生後 Lv.1 且 EXP 歸零，避免下一次取得 EXP 時因舊經驗值直接連跳等；其他持久資料不重置。
-    state.player.exp=0;
-    save();
-    const after=available();
-    log('孟婆轉生完成｜費用 '+COST+' 金幣｜Lv.'+oldLv+' → Lv.1｜EXP → 0｜轉生 '+r.count+' 次（無上限）｜可分配能力點 '+fmt(before)+' → '+fmt(after)+'（+'+GIFT+'）','lv');
-    try{render()}catch(e){};
-    try{toast('轉生完成！獲得 '+GIFT+' 點能力點')}catch(e){}
-    setTimeout(()=>{try{if(state?.inVillage&&String(state.mapId)==='town_oren'){const n=findNpc();if(n){state._a7NpcId=n.id;renderRebirth(n);try{a73FinalizeNpcAction?.('town_oren',n)}catch(_e){}try{a9846DecorateNpc?.()}catch(_e){}}}}catch(e){}},0);
-    return after===before+GIFT;
-  }
-
-  // 讓目前最終 NPC 路由把孟婆視為正式可操作的轉生服務。
-  normalizeNpc();
-  const routeBase=window.a72Route;
-  if(typeof routeBase==='function')window.a72Route=function(townId,npc){if(String(npc?.id||'')==='npc_mengpo')return'rebirth9974';return routeBase.apply(this,arguments)};
-  const statusBase=window.a52NpcStatus;
-  if(typeof statusBase==='function')window.a52NpcStatus=function(townId,npc){if(String(npc?.id||'')==='npc_mengpo')return{mode:'usable',label:'可使用',reason:'Lv.1000 無限轉生：1金幣、Lv.1、EXP歸零、其餘資料全保留、+1000能力點'};return statusBase.apply(this,arguments)};
-  const dispatchBase=window.a72DispatchNpc;
-  if(typeof dispatchBase==='function')window.a72DispatchNpc=function(townId,npc){
-    if(String(npc?.id||'')!=='npc_mengpo')return dispatchBase.apply(this,arguments);
-    try{a72SetActiveNpc?.(npc.id)}catch(e){state._a7NpcId=npc.id}
-    const ok=renderRebirth(npc);
-    try{a52DecorateNpcAction?.(npc)}catch(e){}
-    try{a73FinalizeNpcAction?.(townId,npc)}catch(e){}
-    queueMicrotask(()=>{try{a9846DecorateNpc?.()}catch(e){}});
-    return ok;
-  };
-  try{
-    const rendererBase=window.a75RendererName;if(typeof rendererBase==='function')window.a75RendererName=function(route){return String(route)==='rebirth9974'?'a9974RenderRebirth':rendererBase.apply(this,arguments)};
-    const okBase=window.a73RouteRendererOk;if(typeof okBase==='function')window.a73RouteRendererOk=function(route){return String(route)==='rebirth9974'||okBase.apply(this,arguments)};
-  }catch(e){}
-  window.a9974RenderRebirth=renderRebirth;
-
-  function applyVersion(){
-    if(syncing)return;syncing=true;
-    try{
-      normalizeNpc();window.__BUILD_VERSION__=B;document.title='樓梯口天堂 · '+B;
-      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>{if(v.textContent!==B)v.textContent=B});
-      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>{const t='Alpha99.75：孟婆轉生費用 1 金幣、次數無上限；Lv.1000 可轉生，每次回 Lv.1、EXP 歸零，其餘全部保留並 +1000 能力點。';if(v.textContent!==t)v.textContent=t});
-      document.querySelectorAll('#create-screen .create-sub').forEach(v=>{const t='全面重製核心 Alpha99.75｜孟婆1金幣無限轉生｜Lv.1＋EXP0＋1000能力點｜PC＋手機';if(v.textContent!==t)v.textContent=t});
-      document.querySelectorAll('.source-badge').forEach(v=>{const t=B+' · 孟婆無限轉生';if(v.textContent!==t)v.textContent=t});
-    }catch(e){}syncing=false;
-  }
-  try{window.__A9972_VERSION_OBSERVER__?.disconnect?.()}catch(e){}
-  applyVersion();queueMicrotask(applyVersion);setTimeout(applyVersion,0);
-  window.addEventListener('pageshow',applyVersion,{passive:true});window.addEventListener('resize',applyVersion,{passive:true});
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)applyVersion()},{passive:true});
-  try{const obs=new MutationObserver(()=>queueMicrotask(applyVersion));obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});window.__A9975_VERSION_OBSERVER__=obs}catch(e){}
-  try{
-    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){const fn=window[name];if(typeof fn==='function'&&!fn.__a9975Wrapped){const w=function(){const r=fn.apply(this,arguments);normalizeNpc();applyVersion();return r};w.__a9975Wrapped=true;window[name]=w}}
-  }catch(e){}
-
-  function arithmeticProbe(){
-    const oldLv=1000,oldBank=0,used=500,oldEarn=levelEarned(oldLv)+oldBank,oldLeft=oldEarn-used,newBank=oldBank+levelEarned(oldLv)+GIFT,newLeft=newBank-used;
-    return{ok:oldLeft===451&&newLeft===1451&&newLeft-oldLeft===GIFT,oldLv,oldLeft,newLeft,delta:newLeft-oldLeft,newBank};
-  }
-  function audit(){
-    const issues=[],n=normalizeNpc(),arith=arithmeticProbe();
-    if(!n)issues.push('歐瑞村莊找不到孟婆');
-    if(n&&n.title!=='轉生')issues.push('孟婆標題不是轉生');
-    try{if(a72Route('town_oren',n)!=='rebirth9974')issues.push('孟婆最終路由不是 rebirth9974')}catch(e){issues.push('孟婆路由例外：'+String(e))}
-    try{if(a52NpcStatus('town_oren',n)?.mode!=='usable')issues.push('孟婆狀態不是 usable')}catch(e){issues.push('孟婆狀態例外：'+String(e))}
-    if(!arith.ok)issues.push('轉生能力點保留算術失敗');
-    if(COST!==1)issues.push('轉生費用不是1金幣');
-    if(!/state\.player\.exp=0/.test(String(doRebirth)))issues.push('轉生沒有把 EXP 歸零');
-    if(window.__BUILD_VERSION__!==B)issues.push('版本號未鎖定 99.75');
-    return{ok:issues.length===0,build:B,issues,rules:{minLevel:MIN_LV,cost:COST,unlimited:true,resetLevel:1,resetExp:0,preserveExp:false,preserve:'all-other-state',giftStatPoints:GIFT},arithmetic:arith,npc:n?{id:n.id,name:n.n,title:n.title}:null};
-  }
-  window.__A9975_TEST__={build:B,minLevel:MIN_LV,cost:COST,unlimited:true,gift:GIFT,ensure,bank,available,preview,render:renderRebirth,doRebirth,arithmeticProbe,audit,applyVersion,previous:window.__A9974_TEST__||window.__A9972_TEST__||null};
-  applyVersion();
-})();
-</script>
+<script id="a9974-rebirth-core-disabled">/* Alpha99.80: legacy external rebirth core disabled; moved into main game scope. */</script>
 
 
-<script>
-// ===== Alpha99.77：孟婆超過 Lv.1000 轉生也嚴格全保留 =====
-// 轉生只重設畫面等級與 EXP；實際已取得的等級成長用 levelCarry 精確累積。
-// 因此 Lv.1000、1050、1200... 才轉生，都不會吃掉超出 1000 的 HP/MP/ATK/AC/MR 等成長。
-(()=>{
-  const B='B1.0 Alpha99.77';
-  const LEGACY_STEP=999;
-  let syncing=false;
-
-  function rebirthCount(){return Math.max(0,Math.floor(Number(state?.rebirth?.count||0)))}
-  function displayLevel(){return Math.max(1,Math.floor(Number(state?.player?.lv||1)))}
-  function levelCarry(){
-    const r=state?.rebirth;
-    if(!r||typeof r!=='object')return 0;
-    const raw=Number(r.levelCarry);
-    // 相容 Alpha99.76 舊存檔：當時每轉固定保留 999 級。
-    return Number.isFinite(raw)?Math.max(0,Math.floor(raw)):rebirthCount()*LEGACY_STEP;
-  }
-  function effectiveLevel(){return displayLevel()+levelCarry()}
-
-  // 99.76 已包過 derive；取它的內層 base 會重複加成，因此直接以目前 wrapper 為 base 前，
-  // 在呼叫時暫時讓 rebirth.count=0，使 99.76 wrapper 不再額外 count*999，只由 99.77 的精確有效等級主導。
-  const deriveBase=derive;
-  derive=function(){
-    if(!state?.player)return deriveBase.apply(this,arguments);
-    const shown=state.player.lv;
-    const r=state.rebirth;
-    const savedCount=(r&&typeof r==='object')?r.count:null;
-    const eff=effectiveLevel();
-    state.player.lv=eff;
-    if(r&&typeof r==='object')r.count=0;
-    try{return deriveBase.apply(this,arguments)}
-    finally{
-      state.player.lv=shown;
-      if(r&&typeof r==='object')r.count=savedCount;
-    }
-  };
-
-  function normalizeNpc(){
-    const n=DATA?.towns?.town_oren?.npcs?.find(x=>String(x?.id||'')==='npc_mengpo');
-    if(n){
-      n.title='轉生';
-      n.d='Lv.1000 以上可轉生。費用固定 1 金幣、次數無上限；每次只把目前等級改回 Lv.1、EXP 歸零，其他角色資料與既有戰鬥成長全部保留；超過 Lv.1000 的等級成長也完整保留，並額外獲得 1000 點可分配能力點。';
-    }
-    return n||null;
-  }
-
-  function applyVersion(){
-    if(syncing)return;syncing=true;
-    try{
-      normalizeNpc();
-      window.__BUILD_VERSION__=B;
-      document.title='樓梯口天堂 · '+B;
-      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>v.textContent=B);
-      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>v.textContent='Alpha99.77：孟婆 Lv.1000 以上無限轉生；1 金幣，每次回 Lv.1、EXP 歸零、+1000 能力點；超過1000的等級成長也完整保留。');
-      document.querySelectorAll('#create-screen .create-sub').forEach(v=>v.textContent='全面重製核心 Alpha99.77｜孟婆超過1000也全保留轉生｜Lv.1＋EXP0＋1000能力點｜PC＋手機');
-      document.querySelectorAll('.source-badge').forEach(v=>v.textContent=B+' · 孟婆超過1000全保留轉生');
-    }catch(e){}finally{syncing=false}
-  }
-
-  try{window.__A9976_VERSION_OBSERVER__?.disconnect?.()}catch(e){}
-  try{window.__A9975_VERSION_OBSERVER__?.disconnect?.()}catch(e){}
-  applyVersion();queueMicrotask(applyVersion);setTimeout(applyVersion,0);
-  window.addEventListener('pageshow',applyVersion,{passive:true});
-  window.addEventListener('resize',applyVersion,{passive:true});
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)applyVersion()},{passive:true});
-  try{
-    const obs=new MutationObserver(()=>queueMicrotask(applyVersion));
-    obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});
-    window.__A9977_VERSION_OBSERVER__=obs;
-  }catch(e){}
-
-  try{
-    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){
-      const fn=window[name];
-      if(typeof fn==='function'&&!fn.__a9977Wrapped){
-        const w=function(){const r=fn.apply(this,arguments);normalizeNpc();applyVersion();return r};
-        w.__a9977Wrapped=true;window[name]=w;
-      }
-    }
-  }catch(e){}
-
-  function continuityProbe(){
-    const rows=[];
-    let carry=0;
-    for(const oldLv of [1000,1050,1200,1000,1500]){
-      const before=carry+oldLv;
-      carry+=Math.max(0,oldLv-1);
-      const after=carry+1;
-      rows.push({oldLv,before,after,carry,ok:before===after});
-    }
-    return{ok:rows.every(x=>x.ok),rows};
-  }
-
-  function audit(){
-    const issues=[],cont=continuityProbe(),n=normalizeNpc();
-    if(!cont.ok)issues.push('超過1000轉生時有效等級不連續');
-    if(!n)issues.push('歐瑞村莊找不到孟婆');
-    if(window.__BUILD_VERSION__!==B)issues.push('版本號未鎖定 99.77');
-    const f=window.__A9975_TEST__?.doRebirth;
-    if(typeof f!=='function')issues.push('轉生核心不存在');
-    else{
-      const src=String(f);
-      for(const [re,msg] of [
-        [/state\.player\.lv=1/,'沒有 Lv.1 重置'],
-        [/state\.player\.exp=0/,'沒有 EXP 歸零'],
-        [/state\.player\.gold=Number\(state\.player\.gold\|\|0\)-COST/,'沒有扣轉生費'],
-        [/r\.count=.*\+1/,'沒有轉生次數 +1'],
-        [/statPointBank=bank\(\)\+carry\+GIFT/,'沒有保留能力點並加贈1000'],
-        [/r\.levelCarry=.*oldLv-1/,'沒有按實際轉生等級保留成長']
-      ])if(!re.test(src))issues.push(msg);
-    }
-    return{ok:issues.length===0,build:B,issues,rules:{minLevel:1000,cost:1,unlimited:true,resetLevel:1,resetExp:0,giftStatPoints:1000,preserveAllOtherPersistentState:true,preserveDerivedCombatGrowth:true,preserveOver1000Growth:true,effectiveLevel:effectiveLevel(),levelCarry:levelCarry()},continuity:cont,npc:n?{id:n.id,name:n.n,title:n.title}:null};
-  }
-
-  window.__A9977_TEST__={build:B,levelCarry,effectiveLevel,continuityProbe,audit,previous:window.__A9976_TEST__||window.__A9975_TEST__||null};
-  applyVersion();
-})();
-</script>
+<script>/* Alpha99.80: legacy Alpha99.77 external patch disabled. */</script>
 
 
 
-<script>
-// ===== Alpha99.78：孟婆舊停用 gate 完整解除 =====
-// 修正：歷史阿肥 rename=false gate 仍會把已改成轉生 NPC 的孟婆導向「目前停用」。
-// 本版只對 npc_mengpo 解除舊 rename gate；其他 NPC 的來源鎖與停用規則完全不動。
-(()=>{
-  const B='B1.0 Alpha99.78';
-  const MENGPO='npc_mengpo';
-  let syncing=false;
-
-  function isMengpo(npcOrId){
-    return String(typeof npcOrId==='object'?(npcOrId?.id||''):(npcOrId||''))===MENGPO;
-  }
-  function findMengpo(){
-    return DATA?.towns?.town_oren?.npcs?.find(n=>isMengpo(n))||null;
-  }
-  function normalizeMengpo(){
-    const n=findMengpo();
-    if(n){
-      n.title='轉生';
-      n.type='rebirth';
-      n.d='Lv.1000 以上可轉生。費用固定 1 金幣、次數無上限；每次只把目前等級改回 Lv.1、EXP 歸零，其他角色資料與既有戰鬥成長全部保留；超過 Lv.1000 的等級成長也完整保留，並額外獲得 1000 點可分配能力點。';
-    }
-    return n;
-  }
-  function rebirthRenderer(npc=findMengpo()){
-    normalizeMengpo();
-    const fn=window.__A9975_TEST__?.render;
-    if(typeof fn!=='function')return false;
-    const ok=fn(npc||findMengpo());
-    try{a972ShowNpcAction?.()}catch(e){}
-    try{a9846DecorateNpc?.()}catch(e){}
-    return ok!==false;
-  }
-
-  // 1) 直接移除舊資料層 gate。只動孟婆，不碰其他 NPC。
-  try{A26_PUBLIC_GATES?.gatedNpcIds?.delete?.(MENGPO)}catch(e){}
-  try{
-    if(Array.isArray(A41_GATED_IDS)){
-      const i=A41_GATED_IDS.indexOf(MENGPO);if(i>=0)A41_GATED_IDS.splice(i,1);
-    }
-  }catch(e){}
-
-  // 2) 舊「公開功能關閉」判定：孟婆不再視為 rename=false NPC。
-  try{
-    const base=window.a61ExplicitNewOff;
-    if(typeof base==='function')window.a61ExplicitNewOff=function(id){
-      if(isMengpo(id))return false;
-      return base.apply(this,arguments);
-    };
-  }catch(e){}
-  try{
-    const base=window.a72ExplicitOff;
-    if(typeof base==='function')window.a72ExplicitOff=function(id){
-      if(isMengpo(id))return false;
-      return base.apply(this,arguments);
-    };
-  }catch(e){}
-
-  // 3) 最終路由與狀態強制鎖定為可操作轉生服務。
-  try{
-    const base=window.a72Route;
-    if(typeof base==='function')window.a72Route=function(townId,npc){
-      if(isMengpo(npc))return 'rebirth9974';
-      return base.apply(this,arguments);
-    };
-  }catch(e){}
-  try{
-    const base=window.a52NpcStatus;
-    if(typeof base==='function')window.a52NpcStatus=function(townId,npc){
-      if(isMengpo(npc))return{mode:'usable',label:'可使用',reason:'Lv.1000 以上無限轉生'};
-      return base.apply(this,arguments);
-    };
-  }catch(e){}
-
-  // 4) 最後一道保護：任何歷史 wrapper 若仍誤走 unavailable，孟婆一律改畫真正轉生介面。
-  try{
-    const base=window.a72RenderUnavailable;
-    if(typeof base==='function')window.a72RenderUnavailable=function(npc){
-      if(isMengpo(npc))return rebirthRenderer(npc);
-      return base.apply(this,arguments);
-    };
-  }catch(e){}
-
-  // 5) 點擊／直接開 NPC 都優先走轉生 renderer，不再經過舊 rename gate。
-  try{
-    const base=window.a72DispatchNpc;
-    if(typeof base==='function')window.a72DispatchNpc=function(townId,npc){
-      if(!isMengpo(npc))return base.apply(this,arguments);
-      normalizeMengpo();
-      try{a72SetActiveNpc?.(MENGPO)}catch(e){if(state)state._a7NpcId=MENGPO}
-      const ok=rebirthRenderer(npc);
-      try{a52DecorateNpcAction?.(npc)}catch(e){}
-      try{a73FinalizeNpcAction?.(townId||'town_oren',npc)}catch(e){}
-      try{a972ShowNpcAction?.()}catch(e){}
-      queueMicrotask(()=>{try{a9846DecorateNpc?.()}catch(e){}});
-      return ok;
-    };
-  }catch(e){}
-  try{
-    const base=window.a7OpenNpc;
-    if(typeof base==='function')window.a7OpenNpc=function(id){
-      if(!isMengpo(id))return base.apply(this,arguments);
-      const n=normalizeMengpo();if(!n)return false;
-      return a72DispatchNpc('town_oren',n);
-    };
-  }catch(e){}
-  try{
-    const base=window.a73OpenCard;
-    if(typeof base==='function')window.a73OpenCard=function(card){
-      if(String(card?.dataset?.a7Npc||'')!==MENGPO)return base.apply(this,arguments);
-      const n=normalizeMengpo();if(!n)return false;
-      try{if(state){state._a7NpcId=MENGPO;if(state.a51){state.a51.lastNpcId=MENGPO;state.a51.lastNpcTown='town_oren'}}}catch(e){}
-      const ok=a72DispatchNpc('town_oren',n);
-      try{a972ShowNpcAction?.()}catch(e){}
-      return ok;
-    };
-  }catch(e){}
-
-  function applyVersion(){
-    if(syncing)return;syncing=true;
-    try{
-      normalizeMengpo();
-      window.__BUILD_VERSION__=B;
-      document.title='樓梯口天堂 · '+B;
-      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>v.textContent=B);
-      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>v.textContent='Alpha99.78：修正孟婆仍被舊 rename=false gate 判定為停用；轉生功能正式可操作。');
-      document.querySelectorAll('#create-screen .create-sub').forEach(v=>v.textContent='全面重製核心 Alpha99.78｜孟婆轉生停用判定解除｜PC＋手機');
-      document.querySelectorAll('.source-badge').forEach(v=>v.textContent=B+' · 孟婆轉生正式啟用');
-    }catch(e){}finally{syncing=false}
-  }
-
-  function audit(){
-    const issues=[],n=normalizeMengpo();
-    if(!n)issues.push('找不到孟婆');
-    try{if(a61ExplicitNewOff(MENGPO)!==false)issues.push('a61ExplicitNewOff 仍判定孟婆停用')}catch(e){issues.push('a61ExplicitNewOff 例外')}
-    try{if(a72ExplicitOff(MENGPO)!==false)issues.push('a72ExplicitOff 仍判定孟婆停用')}catch(e){issues.push('a72ExplicitOff 例外')}
-    try{if(a72Route('town_oren',n)!=='rebirth9974')issues.push('孟婆路由不是 rebirth9974')}catch(e){issues.push('孟婆路由例外')}
-    try{if(a52NpcStatus('town_oren',n)?.mode!=='usable')issues.push('孟婆狀態不是 usable')}catch(e){issues.push('孟婆狀態例外')}
-    if(window.__BUILD_VERSION__!==B)issues.push('版本號未鎖定 99.78');
-    return{ok:issues.length===0,build:B,issues,npc:n?{id:n.id,name:n.n,title:n.title,type:n.type}:null};
-  }
-
-  // 99.77 的版本 MutationObserver 會持續把畫面版本改回 99.77；99.78 接手後先停掉它。
-  try{window.__A9977_VERSION_OBSERVER__?.disconnect?.()}catch(e){}
-  try{
-    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){
-      const fn=window[name];
-      if(typeof fn==='function'&&!fn.__a9978Wrapped){
-        const w=function(){const r=fn.apply(this,arguments);normalizeMengpo();applyVersion();return r};
-        w.__a9978Wrapped=true;window[name]=w;
-      }
-    }
-  }catch(e){}
-  try{
-    const obs=new MutationObserver(()=>queueMicrotask(applyVersion));
-    obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});
-    window.__A9978_VERSION_OBSERVER__=obs;
-  }catch(e){}
-  applyVersion();queueMicrotask(applyVersion);setTimeout(applyVersion,0);
-  window.__A9978_TEST__={build:B,audit,render:rebirthRenderer,normalize:normalizeMengpo,previous:window.__A9977_TEST__||null};
-})();
-</script>
+<script>/* Alpha99.80: legacy Alpha99.78 external patch disabled. */</script>
 
 
 
 <!-- ===== B1.0 Alpha99.79：大更新前版本顯示最終同步鎖 =====
      僅修正歷史 Alpha99.72/99.75/99.76/99.77/99.78 版本監聽器競爭。
      不修改角色資料、數值、戰鬥、NPC、轉生、掉落、存檔或任何玩法。 ===== -->
-<script id="a9979-final-version-lock">
+<script id="a9979-final-version-lock-disabled">/* Alpha99.80: superseded by the single final version lock below. */</script>
+
+
+<script id="a9980-final-version-lock">
 (()=>{
-  const B='B1.0 Alpha99.79';
-  const NOTE='Alpha99.79：大更新前版本顯示最終同步；遊戲內容沿用 Alpha99.78。';
+  const B='B1.0 Alpha99.80';
+  const NOTE='Alpha99.80：超級大更新前 PC／手機雙驗證安全基準；孟婆轉生核心已回收主作用域。';
   let syncing=false;
-
-  function disconnectLegacyObservers(){
-    for(const k of [
-      '__A9972_VERSION_OBSERVER__',
-      '__A9975_VERSION_OBSERVER__',
-      '__A9976_VERSION_OBSERVER__',
-      '__A9977_VERSION_OBSERVER__',
-      '__A9978_VERSION_OBSERVER__'
-    ]){
-      try{window[k]?.disconnect?.()}catch(e){}
-    }
-  }
-
+  function disconnectLegacy(){for(const k of ['__A9972_VERSION_OBSERVER__','__A9975_VERSION_OBSERVER__','__A9976_VERSION_OBSERVER__','__A9977_VERSION_OBSERVER__','__A9978_VERSION_OBSERVER__','__A9979_VERSION_OBSERVER__'])try{window[k]?.disconnect?.()}catch(e){}}
   function sync(){
-    if(syncing)return;
-    syncing=true;
+    if(syncing)return;syncing=true;
     try{
-      disconnectLegacyObservers();
-      window.__BUILD_VERSION__=B;
-      const title='樓梯口天堂 · '+B;
-      if(document.title!==title)document.title=title;
-      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>{
-        if(v.textContent!==B)v.textContent=B;
-      });
-      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>{
-        if(v.textContent!==NOTE)v.textContent=NOTE;
-      });
-      document.querySelectorAll('#create-screen .create-sub').forEach(v=>{
-        const t='全面重製核心 Alpha99.79｜大更新前安全基準｜遊戲內容沿用 Alpha99.78';
-        if(v.textContent!==t)v.textContent=t;
-      });
-      document.querySelectorAll('.source-badge').forEach(v=>{
-        const t=B+' · 大更新前安全基準';
-        if(v.textContent!==t)v.textContent=t;
-      });
-    }catch(e){}
-    finally{syncing=false}
+      disconnectLegacy();window.__BUILD_VERSION__=B;const title='樓梯口天堂 · '+B;if(document.title!==title)document.title=title;
+      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>{if(v.textContent!==B)v.textContent=B});
+      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>{if(v.textContent!==NOTE)v.textContent=NOTE});
+      document.querySelectorAll('#create-screen .create-sub').forEach(v=>{const t='全面重製核心 Alpha99.80｜超級大更新前 PC／手機雙驗證正式備份';if(v.textContent!==t)v.textContent=t});
+      document.querySelectorAll('.source-badge').forEach(v=>{const t=B+' · 大更新前雙平台安全基準';if(v.textContent!==t)v.textContent=t});
+    }catch(e){}finally{syncing=false}
   }
-
-  // 先停掉所有已知舊版 MutationObserver，避免 99.72 與新版互相搶寫版本字樣。
-  disconnectLegacyObservers();
-
-  // 最終 UI 入口再補一次版本同步；舊 wrapper 即使先寫回舊版，離開函式前也會被覆蓋回 99.79。
-  try{
-    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){
-      const fn=window[name];
-      if(typeof fn==='function'&&!fn.__a9979Wrapped){
-        const w=function(){const r=fn.apply(this,arguments);sync();return r};
-        w.__a9979Wrapped=true;
-        window[name]=w;
-      }
-    }
-  }catch(e){}
-
-  // 只保留一個最終版本監聽器；遇到任何舊事件 listener 寫回 99.72 時立即校正。
-  try{
-    const obs=new MutationObserver(()=>queueMicrotask(sync));
-    if(document.documentElement)obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});
-    window.__A9979_VERSION_OBSERVER__=obs;
-  }catch(e){}
-
-  window.addEventListener('pageshow',sync,{passive:true});
-  window.addEventListener('resize',sync,{passive:true});
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()},{passive:true});
-
-  window.__A9979_TEST__={
-    build:B,
-    sync,
-    audit(){
-      sync();
-      const login=[...document.querySelectorAll('#a46-login-screen .a46-version')].map(v=>v.textContent);
-      const legacyConnected=[];
-      return{
-        ok:window.__BUILD_VERSION__===B && login.every(v=>v===B),
-        build:window.__BUILD_VERSION__,
-        visibleVersions:login,
-        inheritedGameplayBuild:'Alpha99.78',
-        legacyObserversDisconnected:true
-      };
-    },
-    previous:window.__A9978_TEST__||null
-  };
-
-  sync();
-  queueMicrotask(sync);
-  setTimeout(sync,0);
+  disconnectLegacy();
+  try{const obs=new MutationObserver(()=>queueMicrotask(sync));obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});window.__A9980_VERSION_OBSERVER__=obs}catch(e){}
+  window.addEventListener('pageshow',sync,{passive:true});window.addEventListener('resize',sync,{passive:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()},{passive:true});
+  window.__A9980_VERSION_TEST__={build:B,audit(){sync();const login=[...document.querySelectorAll('#a46-login-screen .a46-version')].map(v=>v.textContent);return{ok:window.__BUILD_VERSION__===B&&login.every(v=>v===B),build:window.__BUILD_VERSION__,visibleVersions:login}}};
+  sync();queueMicrotask(sync);setTimeout(sync,0);
 })();
 </script>
 
