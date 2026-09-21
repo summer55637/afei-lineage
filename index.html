@@ -39424,4 +39424,169 @@ const A9967_BUILD='B1.0 Alpha99.67';
 })();
 </script>
 
+
+
+<script>
+// ===== Alpha99.78：孟婆舊停用 gate 完整解除 =====
+// 修正：歷史阿肥 rename=false gate 仍會把已改成轉生 NPC 的孟婆導向「目前停用」。
+// 本版只對 npc_mengpo 解除舊 rename gate；其他 NPC 的來源鎖與停用規則完全不動。
+(()=>{
+  const B='B1.0 Alpha99.78';
+  const MENGPO='npc_mengpo';
+  let syncing=false;
+
+  function isMengpo(npcOrId){
+    return String(typeof npcOrId==='object'?(npcOrId?.id||''):(npcOrId||''))===MENGPO;
+  }
+  function findMengpo(){
+    return DATA?.towns?.town_oren?.npcs?.find(n=>isMengpo(n))||null;
+  }
+  function normalizeMengpo(){
+    const n=findMengpo();
+    if(n){
+      n.title='轉生';
+      n.type='rebirth';
+      n.d='Lv.1000 以上可轉生。費用固定 1 金幣、次數無上限；每次只把目前等級改回 Lv.1、EXP 歸零，其他角色資料與既有戰鬥成長全部保留；超過 Lv.1000 的等級成長也完整保留，並額外獲得 1000 點可分配能力點。';
+    }
+    return n;
+  }
+  function rebirthRenderer(npc=findMengpo()){
+    normalizeMengpo();
+    const fn=window.__A9975_TEST__?.render;
+    if(typeof fn!=='function')return false;
+    const ok=fn(npc||findMengpo());
+    try{a972ShowNpcAction?.()}catch(e){}
+    try{a9846DecorateNpc?.()}catch(e){}
+    return ok!==false;
+  }
+
+  // 1) 直接移除舊資料層 gate。只動孟婆，不碰其他 NPC。
+  try{A26_PUBLIC_GATES?.gatedNpcIds?.delete?.(MENGPO)}catch(e){}
+  try{
+    if(Array.isArray(A41_GATED_IDS)){
+      const i=A41_GATED_IDS.indexOf(MENGPO);if(i>=0)A41_GATED_IDS.splice(i,1);
+    }
+  }catch(e){}
+
+  // 2) 舊「公開功能關閉」判定：孟婆不再視為 rename=false NPC。
+  try{
+    const base=window.a61ExplicitNewOff;
+    if(typeof base==='function')window.a61ExplicitNewOff=function(id){
+      if(isMengpo(id))return false;
+      return base.apply(this,arguments);
+    };
+  }catch(e){}
+  try{
+    const base=window.a72ExplicitOff;
+    if(typeof base==='function')window.a72ExplicitOff=function(id){
+      if(isMengpo(id))return false;
+      return base.apply(this,arguments);
+    };
+  }catch(e){}
+
+  // 3) 最終路由與狀態強制鎖定為可操作轉生服務。
+  try{
+    const base=window.a72Route;
+    if(typeof base==='function')window.a72Route=function(townId,npc){
+      if(isMengpo(npc))return 'rebirth9974';
+      return base.apply(this,arguments);
+    };
+  }catch(e){}
+  try{
+    const base=window.a52NpcStatus;
+    if(typeof base==='function')window.a52NpcStatus=function(townId,npc){
+      if(isMengpo(npc))return{mode:'usable',label:'可使用',reason:'Lv.1000 以上無限轉生'};
+      return base.apply(this,arguments);
+    };
+  }catch(e){}
+
+  // 4) 最後一道保護：任何歷史 wrapper 若仍誤走 unavailable，孟婆一律改畫真正轉生介面。
+  try{
+    const base=window.a72RenderUnavailable;
+    if(typeof base==='function')window.a72RenderUnavailable=function(npc){
+      if(isMengpo(npc))return rebirthRenderer(npc);
+      return base.apply(this,arguments);
+    };
+  }catch(e){}
+
+  // 5) 點擊／直接開 NPC 都優先走轉生 renderer，不再經過舊 rename gate。
+  try{
+    const base=window.a72DispatchNpc;
+    if(typeof base==='function')window.a72DispatchNpc=function(townId,npc){
+      if(!isMengpo(npc))return base.apply(this,arguments);
+      normalizeMengpo();
+      try{a72SetActiveNpc?.(MENGPO)}catch(e){if(state)state._a7NpcId=MENGPO}
+      const ok=rebirthRenderer(npc);
+      try{a52DecorateNpcAction?.(npc)}catch(e){}
+      try{a73FinalizeNpcAction?.(townId||'town_oren',npc)}catch(e){}
+      try{a972ShowNpcAction?.()}catch(e){}
+      queueMicrotask(()=>{try{a9846DecorateNpc?.()}catch(e){}});
+      return ok;
+    };
+  }catch(e){}
+  try{
+    const base=window.a7OpenNpc;
+    if(typeof base==='function')window.a7OpenNpc=function(id){
+      if(!isMengpo(id))return base.apply(this,arguments);
+      const n=normalizeMengpo();if(!n)return false;
+      return a72DispatchNpc('town_oren',n);
+    };
+  }catch(e){}
+  try{
+    const base=window.a73OpenCard;
+    if(typeof base==='function')window.a73OpenCard=function(card){
+      if(String(card?.dataset?.a7Npc||'')!==MENGPO)return base.apply(this,arguments);
+      const n=normalizeMengpo();if(!n)return false;
+      try{if(state){state._a7NpcId=MENGPO;if(state.a51){state.a51.lastNpcId=MENGPO;state.a51.lastNpcTown='town_oren'}}}catch(e){}
+      const ok=a72DispatchNpc('town_oren',n);
+      try{a972ShowNpcAction?.()}catch(e){}
+      return ok;
+    };
+  }catch(e){}
+
+  function applyVersion(){
+    if(syncing)return;syncing=true;
+    try{
+      normalizeMengpo();
+      window.__BUILD_VERSION__=B;
+      document.title='樓梯口天堂 · '+B;
+      document.querySelectorAll('#a46-login-screen .a46-version').forEach(v=>v.textContent=B);
+      document.querySelectorAll('#a46-login-screen .a46-login-note').forEach(v=>v.textContent='Alpha99.78：修正孟婆仍被舊 rename=false gate 判定為停用；轉生功能正式可操作。');
+      document.querySelectorAll('#create-screen .create-sub').forEach(v=>v.textContent='全面重製核心 Alpha99.78｜孟婆轉生停用判定解除｜PC＋手機');
+      document.querySelectorAll('.source-badge').forEach(v=>v.textContent=B+' · 孟婆轉生正式啟用');
+    }catch(e){}finally{syncing=false}
+  }
+
+  function audit(){
+    const issues=[],n=normalizeMengpo();
+    if(!n)issues.push('找不到孟婆');
+    try{if(a61ExplicitNewOff(MENGPO)!==false)issues.push('a61ExplicitNewOff 仍判定孟婆停用')}catch(e){issues.push('a61ExplicitNewOff 例外')}
+    try{if(a72ExplicitOff(MENGPO)!==false)issues.push('a72ExplicitOff 仍判定孟婆停用')}catch(e){issues.push('a72ExplicitOff 例外')}
+    try{if(a72Route('town_oren',n)!=='rebirth9974')issues.push('孟婆路由不是 rebirth9974')}catch(e){issues.push('孟婆路由例外')}
+    try{if(a52NpcStatus('town_oren',n)?.mode!=='usable')issues.push('孟婆狀態不是 usable')}catch(e){issues.push('孟婆狀態例外')}
+    if(window.__BUILD_VERSION__!==B)issues.push('版本號未鎖定 99.78');
+    return{ok:issues.length===0,build:B,issues,npc:n?{id:n.id,name:n.n,title:n.title,type:n.type}:null};
+  }
+
+  // 99.77 的版本 MutationObserver 會持續把畫面版本改回 99.77；99.78 接手後先停掉它。
+  try{window.__A9977_VERSION_OBSERVER__?.disconnect?.()}catch(e){}
+  try{
+    for(const name of ['render','a7RenderVillage','a46ShowLogin','a46ShowSlots']){
+      const fn=window[name];
+      if(typeof fn==='function'&&!fn.__a9978Wrapped){
+        const w=function(){const r=fn.apply(this,arguments);normalizeMengpo();applyVersion();return r};
+        w.__a9978Wrapped=true;window[name]=w;
+      }
+    }
+  }catch(e){}
+  try{
+    const obs=new MutationObserver(()=>queueMicrotask(applyVersion));
+    obs.observe(document.documentElement,{subtree:true,childList:true,characterData:true});
+    window.__A9978_VERSION_OBSERVER__=obs;
+  }catch(e){}
+  applyVersion();queueMicrotask(applyVersion);setTimeout(applyVersion,0);
+  window.__A9978_TEST__={build:B,audit,render:rebirthRenderer,normalize:normalizeMengpo,previous:window.__A9977_TEST__||null};
+})();
+</script>
+
 </body></html>
