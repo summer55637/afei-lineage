@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#120d09">
+  <title>樓梯口天堂｜創角修正版</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #120d09; }
+    #game { display: block; width: 100%; height: 100%; border: 0; }
+  </style>
+</head>
+<body>
+  <iframe id="game" src="./index.html" title="樓梯口天堂"></iframe>
+  <script>
+    // Compatibility shim for Alpha99.80's creator renderer.
+    // The current screen no longer contains #create-remain, but the
+    // Alpha58 renderer still checks for it before redrawing the stats.
+    (() => {
+      const frame = document.getElementById('game');
+      let observedDocument = null;
+      let observer = null;
+
+      function ensureLegacyCounter(doc) {
+        try {
+          const box = doc.querySelector('#create-screen .create-box');
+          if (!box || doc.getElementById('create-remain')) return;
+          const legacy = doc.createElement('b');
+          legacy.id = 'create-remain';
+          legacy.textContent = '0';
+          legacy.style.display = 'none';
+          legacy.setAttribute('aria-hidden', 'true');
+          box.appendChild(legacy);
+        } catch (error) {
+          // Keep the original game usable even if the compatibility shim fails.
+        }
+      }
+
+      function install() {
+        try {
+          const doc = frame.contentDocument;
+          if (!doc || !doc.documentElement || doc === observedDocument) return;
+          if (observer) observer.disconnect();
+          observedDocument = doc;
+          ensureLegacyCounter(doc);
+          observer = new MutationObserver(() => ensureLegacyCounter(doc));
+          observer.observe(doc.documentElement, { childList: true, subtree: true });
+        } catch (error) {
+          // Same-origin access is required for this compatibility shim.
+        }
+      }
+
+      frame.addEventListener('load', install);
+      if (frame.contentDocument && frame.contentDocument.readyState === 'complete') install();
+    })();
+  </script>
+</body>
+</html>
