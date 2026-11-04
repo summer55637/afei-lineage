@@ -9611,7 +9611,7 @@ function a58MigrateState(raw,source='load'){
 function a58CreateClassText(cls){return CLASS[cls]?.n||cls}
 function a58BuildCreateSafe(){
   const g=document.getElementById('create-portraits'),alloc=document.getElementById('alloc'),remain=document.getElementById('create-remain');
-  if(!g||!alloc||!remain)return false;
+  if(!g||!alloc)return false;
   if(!create||!CLASS[create.cls])create={cls:'elf',sex:'m',pts:CLASS.elf.pts,stats:{...CLASS.elf.base}};
   if(!create.stats||typeof create.stats!=='object')create.stats={...CLASS[create.cls].base};
   if(!Number.isFinite(Number(create.pts)))create.pts=CLASS[create.cls].pts;
@@ -9623,7 +9623,7 @@ function a58BuildCreateSafe(){
     const cls=c.dataset.cls,sex=c.dataset.sex;if(!CLASS[cls])return;
     create.cls=cls;create.sex=sex;create.pts=CLASS[cls].pts;create.stats={...CLASS[cls].base};a58BuildCreateSafe();
   });
-  remain.textContent=String(create.pts);
+  if(remain)remain.textContent=String(create.pts);
   const labels={str:'力量 STR',dex:'敏捷 DEX',con:'體質 CON',int:'智力 INT',wis:'精神 WIS',cha:'魅力 CHA'};
   alloc.innerHTML=Object.entries(labels).map(([k,n])=>{
     const base=Number(CLASS[create.cls].base[k]||0),val=Number(create.stats[k]||0),canMinus=val>base,canPlus=create.pts>0&&val<20;
